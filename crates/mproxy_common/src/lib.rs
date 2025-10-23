@@ -8,21 +8,6 @@ pub fn data_path() -> String {
 }
 
 pub fn cert_path() -> String {
-    format!("{}/certs", data_path())
-}
-
-
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+    std::env::var("MPROXY_CERT_PATH")
+        .unwrap_or_else(|_| format!("{}/certs", data_path()))
 }

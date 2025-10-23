@@ -25,6 +25,7 @@ MPROXY_HTTPS_PORT=443
 MPROXY_HTTP_PORT=80
 MPROXY_API_PORT=3008
 MPROXY_DATA_PATH=/var/lib/mproxy/data
+MPROXY_HOSTS_CONFIG_PATH=/etc/mproxy/hosts.toml
 ```
 
 After configuration changes:

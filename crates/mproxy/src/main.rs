@@ -1,5 +1,3 @@
-// #[macro_use]
-// extern crate dotenv_codegen;
 extern crate dotenv;
 
 use dotenv::dotenv;
