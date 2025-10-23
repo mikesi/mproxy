@@ -1,0 +1,22 @@
+# Ignore Git repository files
+.git
+.gitignore
+
+# Ignore IDE configuration
+.idea
+
+# Ignore local build artifacts
+target/
+
+# Ignore local environment files (secrets)
+.env
+*.env.local
+
+# Ignore local data directory
+data/
+
+# Ignore RPM packages
+*.rpm
+
+# Ignore Cargo's local registry and git sources
+.cargo/

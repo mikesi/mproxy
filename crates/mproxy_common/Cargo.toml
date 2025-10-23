@@ -1,0 +1,18 @@
+[package]
+name = "mproxy_common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+serde.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+x509-parser.workspace = true
+chrono.workspace = true
+time = "0.3.44"
+# ACMEv2 - Let's Encrypt
+acme-v2 = "0.9.3"
+toml.workspace = true
+pingora.workspace = true

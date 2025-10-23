@@ -1,0 +1,48 @@
+[package]
+name = "mproxy"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "A Very Simple Reverse Proxy"
+license = "Apache-2.0"
+
+[[bin]]
+name = "mproxy"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+acme-v2.workspace = true
+tokio.workspace = true
+mproxy_common.workspace = true
+cert_tool = { path = "../cert_tool", features = ["lib"] }
+log.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dotenv.workspace = true
+dotenv_codegen.workspace = true
+pingora.workspace = true
+async-trait = "0.1.89"
+serde_json.workspace = true
+toml.workspace = true
+http = "1.3.1"
+ctrlc = {version = "3.5.0", features = ["termination"]}
+
+[package.metadata.rpm]
+package = "mproxy"
+release = "1"
+license = "Apache-2.0"
+summary = "A Reverse Proxy and TLS Terminator"
+description = "A high-performance reverse proxy with TLS termination capabilities"
+requires = ["openssl", "systemd"]
+build_requires = ["openssl-devel", "systemd"]
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release", "--bin", "mproxy"]
+target = "x86_64-unknown-linux-gnu"
+
+[package.metadata.rpm.targets]
+mproxy = { path = "/usr/bin/mproxy" }
