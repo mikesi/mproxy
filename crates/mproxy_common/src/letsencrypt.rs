@@ -1,7 +1,9 @@
 use crate::certificates::Certificate;
-use crate::{cert_path};
+use crate::{acme_challenge_path, acme_path, cert_path};
 use std::fs;
 use std::path::{PathBuf};
+use acme_v2::{create_p384_key, Directory, DirectoryUrl, Error};
+use acme_v2::persist::FilePersist;
 use tracing::{debug, error, info};
 use x509_parser::der_parser::oid;
 use x509_parser::extensions::{GeneralName, ParsedExtension};
@@ -163,4 +165,90 @@ fn parse_hostname(in_str: &str) -> String {
     }
   }
   host_name
+}
+
+
+pub fn request_certificate(domain: &String, email: &String, aliases: &Vec<String>) -> Result<(),Error> {
+
+  let url = DirectoryUrl::LetsEncryptStaging;
+
+  let persist = FilePersist::new(acme_path());
+
+  let dir = Directory::from_url(persist, url)?;
+  let acc = dir.account(&email)?;
+  let v = aliases.iter().map(|s| &s[..]).collect::<Vec<&str>>();
+  let mut order_new = acc.new_order(&domain, v.as_slice())?;
+
+  let order_csr = loop {
+    if let Some(order_csr) = order_new.confirm_validations(){
+      info!("confirm valida...");
+      break order_csr;
+    }
+    let auths = order_new.authorizations()?;
+    // For each domain + each aliases we get separate challenge proofs
+    for auth in auths {
+      let challenge = auth.http_challenge();
+      let token = challenge.http_token();
+      let proof = challenge.http_proof();
+      // write proof to acme-challenge directory
+      let acme_challenge_path = acme_challenge_path();
+      let proof_path = PathBuf::from(acme_challenge_path).join(token);
+      fs::write(&proof_path, proof)?;
+      challenge.validate(5000)?;
+    }
+    order_new.refresh()?;
+
+  };
+
+  let pkey_pri = create_p384_key();
+
+  let order_cert = order_csr.finalize_pkey(pkey_pri,5000)?;
+
+  let cert = order_cert.download_and_save_cert()?;
+
+  le_cert_to_cert_store(cert, domain, aliases);
+
+  Ok(())
+}
+
+fn le_cert_to_cert_store(le_cert: acme_v2::Certificate, domain: &String, aliases: &Vec<String>){
+  const BEGIN_MARKER: &str = "-----BEGIN CERTIFICATE-----";
+  const END_MARKER: &str = "-----END CERTIFICATE-----";
+  let mut certificates = Vec::new();
+  let mut start_index = 0;
+  let data:String = le_cert.certificate().into();
+  while let Some(begin_index) = data[start_index..].find(BEGIN_MARKER) {
+    let begin_index = start_index + begin_index;
+    if let Some(end_index) = data[begin_index..].find(END_MARKER) {
+      let end_index = begin_index + end_index + END_MARKER.len();
+      let cert_block = &data[begin_index..end_index];
+      certificates.push(cert_block.trim().to_string());
+      start_index = end_index;
+    } else {
+      break;
+    }
+  }
+
+  let mut new_cert = Certificate::new(domain.clone());
+  new_cert.set_private_key(le_cert.private_key().to_string());
+  new_cert.set_certificate(certificates[0].clone());
+  new_cert.set_full_chain(le_cert.certificate().parse().unwrap());
+  new_cert.set_host_names(aliases.clone());
+
+  let cert_dest_path = PathBuf::from(cert_path()).join(new_cert.get_host_name());
+  if !cert_dest_path.exists() {
+    fs::create_dir(&cert_dest_path).unwrap();
+  }
+  let cert_dest_file_path = cert_dest_path.join("cert.json");
+  fs::write(&cert_dest_file_path, serde_json::to_string_pretty(&new_cert).unwrap()).unwrap();
+}
+
+
+pub fn find_certificate(domain: String) -> Option<Certificate> {
+  let cert_path = PathBuf::from(cert_path()).join(domain).join("cert.json");
+  if cert_path.exists() {
+    let cert = Certificate::from_path(cert_path);
+    return Some(cert);
+  }
+  None
 }

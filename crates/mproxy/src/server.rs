@@ -1,7 +1,7 @@
 pub mod server {
     use async_trait::async_trait;
     use log::error;
-    use mproxy_common::cert_path;
+    use mproxy_common::{acme_challenge_path, cert_path, data_path};
     use mproxy_common::certificates::Certificate;
     use mproxy_common::host_config::{HostConfig, HostConfigList, HostsConfigLoader};
     use pingora::http::{ResponseHeader, StatusCode};
@@ -21,11 +21,12 @@ pub mod server {
     use pingora::ErrorSource::Upstream;
     use std::collections::HashMap;
     use std::fmt::{Debug, Formatter};
+    use std::fs;
     use std::path::PathBuf;
     use std::sync::{LazyLock, Mutex};
     use std::time::Duration;
     use tracing::info;
-
+    use bytes::Bytes;
 
     // This is a Global Certificate Map that is used by the CertHandler
     static CERT_MAP: LazyLock<Mutex<HashMap<String, Option<Certificate>>>> = LazyLock::new(|| {
@@ -323,10 +324,11 @@ pub mod server {
                                   session.req_header().method.to_string(),
                                   _ctx.server_name.as_deref().unwrap_or(""),
                                   session.req_header().uri.path_and_query().unwrap().to_string());
+            // Log only global errors here
             if response_code > 204 {
                 error!("{}", log_msg);
             } else {
-                info!("{}", log_msg);
+                // info!("{}", log_msg);
             }
         }
     }
@@ -374,24 +376,65 @@ pub mod server {
 
         async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
         where
-            Self::CTX: Send + Sync,
+          Self::CTX: Send + Sync,
         {
+            // Regardless of the host we check if it's letsencrypt challenge request
+            if session.req_header().uri.path().starts_with("/.well-known/acme-challenge/") {
+                let token = session.req_header().uri.path().split("/").last().unwrap();
+                info!("token: {}",token);
+                let token_path = PathBuf::from(acme_challenge_path()).join(token);
+                return if token_path.exists() {
+                    info!("Token Path found: [{}]",token_path.display());
+                    let mut response_header = ResponseHeader::build(StatusCode::OK, None)?;
+                    response_header.insert_header(http::header::CONTENT_TYPE, "text/plain").expect("Failed to Insert Content-Type Header");
+                    let token_content = fs::read_to_string(token_path).expect("Cannot read token");
+                    info!("Token Content: [{}]",token_content);
+                    session.write_response_header(Box::new(response_header), false).await?;
+                    session.write_response_body(Some(Bytes::copy_from_slice(token_content.as_bytes())), true).await?;
+                    Ok(true)
+                } else {
+                    error!("Token not found: [{}]",token_path.display());
+                    let response_header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
+                    session.write_response_header(Box::new(response_header), true).await?;
+                    Ok(true)
+                }
+            }
             if let Some(host_name) = SimpleHttpProxy::get_host(session) {
                 _ctx.server_name = Some(host_name.to_string().clone());
-                if session.req_header().uri.path().starts_with("/.we") {} else {
-                    let mut redirect_response_header = ResponseHeader::build(StatusCode::TEMPORARY_REDIRECT, None)?;
-                    let uri = session.req_header().uri.path_and_query().map_or("/", |pq| pq.as_str());
-                    let location = format!("https://{}{}", host_name,uri);
-                    redirect_response_header.insert_header("Location", location.clone())?;
-                    redirect_response_header.insert_header("Content-Length", "0")?;
-                    session.write_response_header(Box::new(redirect_response_header),true).await?;
-                    return Ok(true);
-                }
+                // Redirect to HTTPS all other requests
+                let mut redirect_response_header = ResponseHeader::build(StatusCode::TEMPORARY_REDIRECT, None)?;
+                let uri = session.req_header().uri.path_and_query().map_or("/", |pq| pq.as_str());
+                let location = format!("https://{}{}", host_name, uri);
+                redirect_response_header.insert_header("Location", location.clone())?;
+                redirect_response_header.insert_header("Content-Length", "0")?;
+                session.write_response_header(Box::new(redirect_response_header), true).await?;
+                return Ok(true);
             } else {
-                session.respond_error(400).await?;
+                info!("No host specified!");
+                session.respond_error(404).await?;
                 return Ok(true);
             }
-            Ok(false)
+        }
+
+        async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX)
+        where
+          Self::CTX: Send + Sync,
+        {
+            let response_code = session
+              .response_written()
+              .map_or(0, |resp| resp.status.as_u16());
+            let log_msg = format!("[{}] [{}] [{}] - [{}{}]", _ctx.client_ip,
+                                  response_code.to_string(),
+                                  session.req_header().method.to_string(),
+                                  _ctx.server_name.as_deref().unwrap_or(""),
+                                  session.req_header().uri.path_and_query().unwrap().to_string());
+            info!("{:?}", _e);
+            // Log only global errors here
+            if response_code > 204 {
+                info!("{}", log_msg);
+            } else {
+                info!("{}", log_msg);
+            }
         }
     }
 

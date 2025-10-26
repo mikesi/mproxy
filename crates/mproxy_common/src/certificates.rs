@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::PathBuf;
+use chrono::{ Utc};
+use time::format_description::well_known::iso8601::FormattedComponents::DateTime;
 use time::OffsetDateTime;
 use tracing::info;
 use x509_parser::certificate::X509Certificate;
@@ -159,6 +161,14 @@ impl Certificate {
       Ok(valid_until.unix_timestamp())
     })?
   }
+
+  pub fn get_valid_until_date_time(&self) -> Result<chrono::DateTime<Utc>> {
+    self.with_parsed_cert(|cert| {
+      let valid_until = cert.validity().not_after.to_datetime();
+      Ok(chrono::DateTime::from_timestamp(valid_until.unix_timestamp(),0).unwrap())
+    })?
+  }
+
 
   pub fn get_valid_from_unix_timestamp(&self) -> Result<i64> {
     self.with_parsed_cert(|cert| {

@@ -1,10 +1,13 @@
 extern crate dotenv;
 
+use std::fs;
+use std::path::PathBuf;
 use dotenv::dotenv;
 use tokio::task::JoinHandle;
 use tracing::subscriber::set_global_default;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use mproxy_common::acme_challenge_path;
 use mproxy_common::host_config::{HostsConfigLoader};
 use crate::server::server::CertStore;
 
@@ -20,6 +23,11 @@ async fn main() {
     dotenv().ok();
     dotenv::from_filename("/etc/mproxy/mproxy.env").ok();
 
+    // try to ensure challenge path
+    let challenge_path = acme_challenge_path();
+    if !PathBuf::from(&challenge_path).exists() {
+        fs::create_dir_all(&challenge_path).expect(format!("Failed to create challenge path at: [{}]",challenge_path).as_str());
+    }
 
     let mut join_handles: Vec<JoinHandle<()>> =  Vec::new();
     let config_loader = HostsConfigLoader::new();

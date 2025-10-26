@@ -1,10 +1,14 @@
 extern crate dotenv;
+extern crate chrono;
+
 use clap::{Parser, Subcommand};
 use dotenv::dotenv;
-use mproxy_common::{cert_path, certificates::Certificate, letscencrypt};
+use mproxy_common::{cert_path, certificates::Certificate, letsencrypt};
 use std::fs;
 use std::path::PathBuf;
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use chrono::prelude::*;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -23,6 +27,25 @@ enum Commands {
   Import {
     #[arg(short = 'i', long = "input-dir", required = true)]
     input_dir: String,
+  },
+  /// Request New Certificate from Let's Encrypt
+  CertNew {
+    #[arg(short = 'e', long = "email", required = true)]
+    email: String,
+    #[arg(short = 'd', long = "domain", required = true)]
+    domain: String,
+    #[arg(short = 'a', long = "alias", required = false)]
+    aliases: Vec<String>,
+  },
+  /// Renew loads a current certificate from store
+  CertRenew {
+    #[arg(short = 'd', long = "domain", required = true)]
+    domain: String,
+  },
+  /// Tries to find an existing Certificate in the store
+  CertFind {
+    #[arg(short = 'd', long = "domain", required = true)]
+    domain: String,
   },
   /// Exports certificate, private key, and hosts for a given hostname
   Export {
@@ -44,12 +67,38 @@ async fn main() {
   let cli = Cli::parse();
 
   match &cli.command {
+    Commands::CertFind { domain } => {
+      let cert = letsencrypt::find_certificate(domain.into());
+      if let Some(cert) = cert {
+        println!("Certificate found for domain: {}", domain);
+        println!("Aliases: {:?}",cert.host_names);
+        println!("\nCert: {:?}",cert.certificate_pem);
+        println!("\nFull Chain: {:?}",cert.full_chain);
+        println!("\nPrivate Key: {:?}",cert.private_key_pem);
+        println!("\nExpire At: [{}]",cert.get_valid_until_date_time().unwrap().to_rfc3339());
+      } else {
+        println!("Certificate not found for domain: {}", domain);
+      }
+    }
+    Commands::CertRenew {domain} => {
+      info!("Renew Certificate Req");
+    }
+    Commands::CertNew {domain,email, aliases} => {
+      match letsencrypt::request_certificate(domain, email, aliases) {
+        Ok(_) => {
+          println!("Certificate Request Success!");
+        }
+        Err(e) => {
+          eprintln!("Error requesting certificate: {}", e);
+          eprintln!("Error Dump: {:?}", e);
+        }
+      }
+    }
     Commands::Add { name } => {
       println!("'myapp add' was used, name is: {name:?}");
     }
     Commands::Import { input_dir } => {
-      println!("'myapp import' was used, name is: {input_dir:?}");
-      letscencrypt::import_from_letsencrypt_path(input_dir).await;
+      letsencrypt::import_from_letsencrypt_path(input_dir).await;
     }
     Commands::Export { hostname } => {
       let cert_file_path = PathBuf::from(cert_path()).join(hostname).join("cert.json");
