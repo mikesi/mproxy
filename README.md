@@ -1,7 +1,7 @@
 # mproxy
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Build Status](https://github.com/user/mproxy/actions/workflows/rust.yml/badge.svg)](https://github.com/user/mproxy/actions)
+[![Build Status](https://github.com/mikesi/mproxy/actions/workflows/rust.yml/badge.svg)](https://github.com/user/mproxy/actions)
 
 A very Simple, high-performance, lightweight reverse proxy and TLS terminator written in Rust.
 
