@@ -100,6 +100,62 @@ To import certificates from a Let's Encrypt directory, use the `import` command:
 
 This will scan the `/etc/letsencrypt/live` directory, parse the certificates, and save them in a format that `mproxy` can use in the directory specified by the `MPROXY_CERT_PATH` environment variable.
 
+### Requesting New Certificates from Let's Encrypt
+
+`cert_tool` can initiate a new certificate order via Let's Encrypt using the `cert-new` command.
+
+```bash
+./target/release/cert_tool cert-new \
+  --email you@example.com \
+  --domain example.com \
+  --alias www.example.com \
+  --alias api.example.com
+```
+
+- **--email**: Email used for the ACME account registration.
+- **--domain**: Primary domain to issue the certificate for.
+- **--alias**: Optional; repeatable for Subject Alternative Names (SANs).
+
+Note: The ACME issuance/validation workflow is under active development. Ensure your environment can serve HTTP-01 challenges (or equivalent) before relying on automated issuance in production.
+
+#### HTTP-01 Challenge Handling (mproxy + cert_tool)
+
+When using `cert-new`, `mproxy`'s HTTP listener serves ACME HTTP-01 challenges automatically:
+
+- `cert_tool` writes the token/proof files to `$(MPROXY_DATA_PATH)/acme-challenge/`.
+- `mproxy` serves requests to `/.well-known/acme-challenge/<token>` directly from that directory and responds with the token contents.
+- All other HTTP requests are redirected to HTTPS.
+
+Prerequisites:
+
+- **DNS**: The domain(s) and aliases must resolve to the public IP of your `mproxy` instance.
+- **Port 80**: Inbound HTTP (port 80) must reach `mproxy`.
+- **Environment**: Set `MPROXY_DATA_PATH` and `MPROXY_HTTP_PORT`/`MPROXY_HTTPS_PORT` appropriately.
+
+Quick setup example:
+
+```bash
+export MPROXY_DATA_PATH=/var/lib/mproxy
+export MPROXY_HTTP_PORT=80
+export MPROXY_HTTPS_PORT=443
+
+# Ensure challenge directory exists
+mkdir -p "$MPROXY_DATA_PATH/acme-challenge"
+
+# Start mproxy (via your preferred method; e.g., systemd or cargo run)
+
+# In another shell, request a cert
+./target/release/cert_tool cert-new \
+  --email you@example.com \
+  --domain example.com \
+  --alias www.example.com
+```
+
+Internals:
+
+- Challenge files are written by `cert_tool` to `$(MPROXY_DATA_PATH)/acme-challenge/`.
+- `mproxy` serves them from its HTTP listener and redirects all other paths to HTTPS.
+
 ### Exporting Certificates
 
 To export a certificate for a specific host, use the `export` command:

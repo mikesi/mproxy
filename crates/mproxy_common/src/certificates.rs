@@ -5,7 +5,6 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::PathBuf;
 use chrono::{ Utc};
-use time::format_description::well_known::iso8601::FormattedComponents::DateTime;
 use time::OffsetDateTime;
 use tracing::info;
 use x509_parser::certificate::X509Certificate;

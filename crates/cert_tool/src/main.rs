@@ -1,5 +1,4 @@
 extern crate dotenv;
-extern crate chrono;
 
 use clap::{Parser, Subcommand};
 use dotenv::dotenv;
@@ -8,7 +7,6 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
-use chrono::prelude::*;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -20,9 +18,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-  /// Adds files to myapp
   #[command(propagate_version = true)]
-  Add { name: Option<String> },
   /// Imports Certificates from Nginx-Proxy Let's Encrypt directory
   Import {
     #[arg(short = 'i', long = "input-dir", required = true)]
@@ -36,16 +32,34 @@ enum Commands {
     domain: String,
     #[arg(short = 'a', long = "alias", required = false)]
     aliases: Vec<String>,
+    /// Sets the Let's Encrypt staging directory - for testing purposes
+    #[arg(short = 's', long = "staging", required = false,default_value_t = false)]
+    staging: bool,
+  },
+  /// Tries to renew all certificates for hosts in host.toml that will expire soon
+  CertAutoRenew {
+    /// Sets the Let's Encrypt staging directory - for testing purposes
+    #[arg(short = 's', long = "staging", required = false,default_value_t = false)]
+    staging: bool,
   },
   /// Renew loads a current certificate from store
+  /// Make sure MPROXY_LETSENCRYPT_EMAIL is defined
   CertRenew {
+    /// The name of the directory that contains the certificate
     #[arg(short = 'd', long = "domain", required = true)]
     domain: String,
+    /// Sets the Let's Encrypt staging directory - for testing purposes
+    #[arg(short = 's', long = "staging", required = false,default_value_t = false)]
+    staging: bool,
   },
   /// Tries to find an existing Certificate in the store
   CertFind {
     #[arg(short = 'd', long = "domain", required = true)]
     domain: String,
+  },
+  /// Reloads the server to apply new certificates and or changes in hosts.toml
+  ReloadServer {
+
   },
   /// Exports certificate, private key, and hosts for a given hostname
   Export {
@@ -67,6 +81,9 @@ async fn main() {
   let cli = Cli::parse();
 
   match &cli.command {
+    Commands::CertAutoRenew { staging } => {
+
+    },
     Commands::CertFind { domain } => {
       let cert = letsencrypt::find_certificate(domain.into());
       if let Some(cert) = cert {
@@ -80,11 +97,12 @@ async fn main() {
         println!("Certificate not found for domain: {}", domain);
       }
     }
-    Commands::CertRenew {domain} => {
-      info!("Renew Certificate Req");
+    Commands::CertRenew {domain, staging} => {
+      info!("Renew Certificate");
+      letsencrypt::renew_certificate(domain,&std::env::var("MPROXY_LETSENCRYPT_EMAIL").unwrap(),*staging);
     }
-    Commands::CertNew {domain,email, aliases} => {
-      match letsencrypt::request_certificate(domain, email, aliases) {
+    Commands::CertNew {domain,email, aliases, staging } => {
+      match letsencrypt::request_certificate(domain, email, aliases, *staging) {
         Ok(_) => {
           println!("Certificate Request Success!");
         }
@@ -94,8 +112,8 @@ async fn main() {
         }
       }
     }
-    Commands::Add { name } => {
-      println!("'myapp add' was used, name is: {name:?}");
+    Commands::ReloadServer { } => {
+
     }
     Commands::Import { input_dir } => {
       letsencrypt::import_from_letsencrypt_path(input_dir).await;

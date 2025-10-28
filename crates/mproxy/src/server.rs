@@ -393,9 +393,8 @@ pub mod server {
                     session.write_response_body(Some(Bytes::copy_from_slice(token_content.as_bytes())), true).await?;
                     Ok(true)
                 } else {
-                    error!("Token not found: [{}]",token_path.display());
-                    let response_header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
-                    session.write_response_header(Box::new(response_header), true).await?;
+                    info!("Token not found: [{}]",token_path.display());
+                    session.respond_error(404).await?;
                     Ok(true)
                 }
             }
@@ -456,10 +455,6 @@ pub mod server {
 
         // This is then the Context inside of request
         let tls_proxy_app = TlsProxyApp {};
-
-        let cert_store = CertStore::new();
-
-        let cert = cert_store.get_cert("localhost");
 
         let http_proxy_app = SimpleHttpProxy::new();
 

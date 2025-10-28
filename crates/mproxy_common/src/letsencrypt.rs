@@ -168,20 +168,45 @@ fn parse_hostname(in_str: &str) -> String {
 }
 
 
-pub fn request_certificate(domain: &String, email: &String, aliases: &Vec<String>) -> Result<(),Error> {
+// Renew is actually requesting a new certificate
+// but we get the info from the certificate object itself
+pub fn renew_certificate(domain: &String, email: &String, staging: bool){
+  if let Some(cert) = find_certificate(domain.clone()) {
+    let mut aliases: Vec<String> = Vec::new();
+    if cert.host_names.is_some() {
+      aliases = cert.host_names.unwrap();
+    }
+    match request_certificate(domain, email, &aliases, staging){
+      Ok(_) => {
+        println!("Certificate renewed: {}", domain);
+      },
+      Err(e) => {
+        println!("Error renewing certificate: {}", e);
+      }
+    }
+  } else {
+    println!("No such certificate : {}", domain);
+  }
+}
 
-  let url = DirectoryUrl::LetsEncryptStaging;
+pub fn request_certificate(domain: &String, email: &String, aliases: &Vec<String>, staging: bool) -> Result<(),Error> {
+
+  let url = if staging {
+    DirectoryUrl::LetsEncryptStaging
+  } else {
+    DirectoryUrl::LetsEncrypt
+  };
 
   let persist = FilePersist::new(acme_path());
 
   let dir = Directory::from_url(persist, url)?;
+
   let acc = dir.account(&email)?;
   let v = aliases.iter().map(|s| &s[..]).collect::<Vec<&str>>();
   let mut order_new = acc.new_order(&domain, v.as_slice())?;
 
   let order_csr = loop {
     if let Some(order_csr) = order_new.confirm_validations(){
-      info!("confirm valida...");
       break order_csr;
     }
     let auths = order_new.authorizations()?;
@@ -197,7 +222,6 @@ pub fn request_certificate(domain: &String, email: &String, aliases: &Vec<String
       challenge.validate(5000)?;
     }
     order_new.refresh()?;
-
   };
 
   let pkey_pri = create_p384_key();
@@ -211,6 +235,7 @@ pub fn request_certificate(domain: &String, email: &String, aliases: &Vec<String
   Ok(())
 }
 
+// Takes Letsencrypt Certificate and stores it in the cert store
 fn le_cert_to_cert_store(le_cert: acme_v2::Certificate, domain: &String, aliases: &Vec<String>){
   const BEGIN_MARKER: &str = "-----BEGIN CERTIFICATE-----";
   const END_MARKER: &str = "-----END CERTIFICATE-----";
