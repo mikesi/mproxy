@@ -9,10 +9,12 @@ use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 use mproxy_common::acme_challenge_path;
 use mproxy_common::host_config::{HostsConfigLoader};
-use crate::server::server::CertStore;
+use crate::cert_store::CertStore;
 
 // Declare the server module
 mod server;
+mod cert_store;
+mod cert_handler;
 
 #[tokio::main]
 async fn main() {

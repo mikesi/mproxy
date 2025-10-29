@@ -1,203 +1,29 @@
 pub mod server {
     use async_trait::async_trait;
     use log::error;
-    use mproxy_common::{acme_challenge_path, cert_path, data_path};
-    use mproxy_common::certificates::Certificate;
-    use mproxy_common::host_config::{HostConfig, HostConfigList, HostsConfigLoader};
+    use mproxy_common::{acme_challenge_path};
     use pingora::http::{ResponseHeader, StatusCode};
     use pingora::listeners::tls::TlsSettings;
     use pingora::listeners::{TcpSocketOptions, ALPN};
     use pingora::modules::http::compression::ResponseCompressionBuilder;
     use pingora::modules::http::HttpModules;
     use pingora::prelude::*;
-    use pingora::protocols::tls::TlsRef;
     use pingora::protocols::TcpKeepalive;
     use pingora::server::configuration::ServerConf;
     use pingora::server::RunArgs;
-    use pingora::tls::pkey::PKey;
-    use pingora::tls::ssl::NameType;
-    use pingora::tls::x509::X509;
     use pingora::upstreams::peer::PeerOptions;
     use pingora::ErrorSource::Upstream;
-    use std::collections::HashMap;
-    use std::fmt::{Debug, Formatter};
+    use std::fmt::{Debug};
     use std::fs;
     use std::path::PathBuf;
-    use std::sync::{LazyLock, Mutex};
     use std::time::Duration;
     use tracing::info;
     use bytes::Bytes;
-
-    // This is a Global Certificate Map that is used by the CertHandler
-    static CERT_MAP: LazyLock<Mutex<HashMap<String, Option<Certificate>>>> = LazyLock::new(|| {
-        info!("CERT_MAP Init");
-        Mutex::new(HashMap::new())
-    });
-
-    #[derive(Debug)]
-    pub struct CertStore {
-        host_config_loader: Option<HostsConfigLoader>,
-    }
-
-
-    // Manage the Certificates
-    impl CertStore {
-        pub fn new() -> Self {
-            Self {
-                host_config_loader: None,
-            }
-        }
-
-        pub fn refresh_hosts(&mut self) {
-            if let Some(host_config_loader) = &mut self.host_config_loader {
-                host_config_loader.refresh_hosts_config();
-            }
-        }
-        pub fn set_host_config_loader(&mut self, host_config_loader: HostsConfigLoader) {
-            self.host_config_loader = Some(host_config_loader.into());
-        }
-
-        pub fn load_certs_from_host_config_list(&self, host_config_list: &HostConfigList) {
-            host_config_list.host_configs.iter().for_each(|host_config| {
-                self.host_config_to_cert(host_config);
-            });
-        }
-
-        fn host_config_to_cert(&self, host_config: &HostConfig) {
-            let mut map = CERT_MAP.lock().unwrap();
-            let cert_path = PathBuf::from(cert_path())
-                .join(cert_path())
-                .join(host_config.host_name.clone())
-                .join("cert.json");
-            let mut cert = Some(Certificate::from_path(cert_path));
-            cert.as_mut().unwrap().host_config = Some(host_config.clone());
-            map.insert(host_config.host_name.clone(), cert.clone());
-            if let Some(aliases) = &host_config.aliases {
-                for alias in aliases {
-                    map.insert(alias.clone(), cert.clone());
-                }
-            }
-        }
-
-        pub fn set_cert(&self, server_name: &str, cert: Certificate) {
-            let mut map = CERT_MAP.lock().unwrap();
-            map.insert(server_name.to_string(), Some(cert.clone()));
-        }
-
-        pub fn get_cert(&self, server_name: &str) -> Option<Certificate> {
-            let map = CERT_MAP.lock().unwrap();
-            match map.get(server_name) {
-                Some(cert) => cert.to_owned(),
-                None => None,
-            }
-        }
-
-        fn extract_last_cert(pem_chain: &str) -> Option<&str> {
-            let begin_marker = "-----BEGIN CERTIFICATE-----";
-            let end_marker = "-----END CERTIFICATE-----";
-            let mut last_pos = 0;
-            while let Some(begin) = pem_chain[last_pos..].find(begin_marker) {
-                let begin = last_pos + begin;
-                let end = pem_chain[begin..].find(end_marker)?;
-                last_pos = begin + end + end_marker.len();
-            }
-            // Get the last certificate block if it exists
-            if last_pos > 0 {
-                let begin = pem_chain[..last_pos].rfind(begin_marker)?;
-                let end = pem_chain[begin..].find(end_marker)? + end_marker.len() + begin;
-                return Some(&pem_chain[begin..end]);
-            }
-            None
-        }
-    }
+    use crate::cert_handler::CertHandler;
+    use crate::cert_store::CertStore;
 
     #[derive(Clone, Debug)]
     pub struct TlsProxyApp {}
-
-    struct CertHandler {
-        pub cert_store: CertStore,
-    }
-
-    impl Debug for CertHandler {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(f, "CertHandler")
-        }
-    }
-
-    impl CertHandler {
-        pub fn new() -> Box<Self> {
-            Box::from(CertHandler {
-                cert_store: CertStore::new(),
-            })
-        }
-
-        pub fn find_cert(&self, server_name: &str) -> Option<Certificate> {
-            self.cert_store.get_cert(server_name)
-        }
-    }
-
-    #[async_trait]
-    impl pingora::listeners::TlsAccept for CertHandler {
-        async fn certificate_callback(&self, _ssl: &mut TlsRef) -> () {
-            // Store the servername in an owned String to avoid borrowing _ssl
-            let servername = _ssl.servername(NameType::HOST_NAME).map(|s| s.to_string());
-            match servername {
-                Some(servername) => {
-                    if let Some(certificate) = self.find_cert(&servername) {
-                        if let Some(cert_fullchain) = certificate.full_chain {
-                            match X509::from_pem(cert_fullchain.as_bytes()) {
-                                Ok(cert) => {
-                                    _ssl.set_certificate(&cert).unwrap();
-                                    _ssl.add_chain_cert(cert).unwrap();
-                                }
-                                Err(e) => {
-                                    error!("Error loading cert: {}", e);
-                                }
-                            };
-                        } else {
-                            error!("No full chain for: [{}]", servername);
-                            return;
-                        }
-
-                        if let Some(intermediate_cert) = &*certificate.parsed_inter_cert.borrow() {
-                            match X509::from_pem(intermediate_cert) {
-                                Ok(cert) => {
-                                    _ssl.add_chain_cert(cert).unwrap();
-                                }
-                                Err(e) => {
-                                    error!("Error loading intermediate cert: {}", e);
-                                    return;
-                                }
-                            };
-                        }
-
-                        if let Some(key_pem) = certificate.private_key_pem {
-                            let loaded_key = match PKey::private_key_from_pem(key_pem.as_bytes()) {
-                                Ok(key) => key,
-                                Err(e) => {
-                                    error!("Error loading key: {}", e);
-                                    return;
-                                }
-                            };
-                            _ssl.set_private_key(&loaded_key).unwrap();
-                        } else {
-                            error!("No private key for: [{}]", servername);
-                            return;
-                        }
-
-                    } else {
-                        // NO CERT for HOSTNAME found
-                        error!("No Certificate for: [{}]", servername);
-                        return;
-                    }
-                }
-                _ => {
-                    error!("No Server Hostname set");
-                }
-            };
-            // todo!()
-        }
-    }
 
     #[derive(Debug)]
     pub struct HttpCtx {
