@@ -439,65 +439,66 @@ pub mod server {
 
     //noinspection DuplicatedCode
     pub fn start_server() {
-        // let server_conf =
         let mut pingora_server = Server::new(Opt::default()).unwrap();
-
-
         let mut conf = ServerConf::default();
-
         conf.upstream_keepalive_pool_size = 4096;
         conf.threads = 32;
         conf.work_stealing  = true;
-
         pingora_server.configuration = conf.into();
-
         pingora_server.bootstrap();
 
-        // This is then the Context inside of request
-        let tls_proxy_app = TlsProxyApp {};
+        let http_port = std::env::var("MPROXY_HTTP_PORT").unwrap_or(String::new()).parse::<u16>().unwrap();
+        if http_port > 0 {
+            info!("HTTP Enabled - Port: [{}]",&http_port);
+            let http_proxy_app = SimpleHttpProxy::new();
+            let mut http_proxy = http_proxy_service(&pingora_server.configuration, http_proxy_app);
+            http_proxy.add_tcp(
+                format!(
+                    "0.0.0.0:{}",
+                    http_port
+                )
+                  .as_str(),
+            );
+            pingora_server.add_service(http_proxy);
+        } else {
+            info!("No or Invalid HTTP Port Set - HTTP Disabled!");
+        }
 
-        let http_proxy_app = SimpleHttpProxy::new();
+        let https_port = std::env::var("MPROXY_HTTPS_PORT").unwrap_or(String::new()).parse::<u16>().unwrap();
+        if https_port > 0 {
+            info!("HTTPS Enabled - Port: [{}]",https_port);
+            let tls_proxy_app = TlsProxyApp {};
+            let cert_handler = CertHandler::new();
 
-        let cert_handler = CertHandler::new();
+            let mut proxy = http_proxy_service(&pingora_server.configuration, tls_proxy_app);
+            proxy.threads = Some(8);
+            let mut downstream_modules = HttpModules::new();
+            downstream_modules.add_module(ResponseCompressionBuilder::enable(6));
+            proxy.app_logic_mut().unwrap().downstream_modules = downstream_modules;
 
+            let mut tls_settings = TlsSettings::with_callbacks(cert_handler).unwrap();
+            tls_settings
+              .set_min_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_3))
+              .unwrap();
+            tls_settings.enable_h2();
+            tls_settings.set_alpn(ALPN::H2H1);
 
-        let mut proxy = http_proxy_service(&pingora_server.configuration, tls_proxy_app);
-        proxy.threads = Some(8);
-        let mut downstream_modules = HttpModules::new();
-        downstream_modules.add_module(ResponseCompressionBuilder::enable(6));
-        proxy.app_logic_mut().unwrap().downstream_modules = downstream_modules;
+            let mut sock_opt = TcpSocketOptions::default();
+            sock_opt.tcp_keepalive = Some(TcpKeepalive {
+                count: 32,
+                idle: Duration::from_secs(60),
+                interval: Duration::from_secs(30),
+                #[cfg(target_os = "linux")]
+                user_timeout: Duration::from_secs(0),
+            });
+            sock_opt.so_reuseport = Some(true);
 
-        let mut tls_settings = TlsSettings::with_callbacks(cert_handler).unwrap();
-        tls_settings
-            .set_min_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_3))
-            .unwrap();
-        tls_settings.enable_h2();
-        tls_settings.set_alpn(ALPN::H2H1);
+            proxy.add_tls_with_settings(format!("0.0.0.0:{}",https_port).as_str(), Some(sock_opt),tls_settings);
 
-        let mut sock_opt = TcpSocketOptions::default();
-        sock_opt.tcp_keepalive = Some(TcpKeepalive {
-            count: 32,
-            idle: Duration::from_secs(60),
-            interval: Duration::from_secs(30),
-            #[cfg(target_os = "linux")]
-            user_timeout: Duration::from_secs(0),
-        });
-        sock_opt.so_reuseport = Some(true);
-
-        proxy.add_tls_with_settings(format!("0.0.0.0:{}",std::env::var("MPROXY_HTTPS_PORT").expect("MPROXY_HTTPS_PORT not set")).as_str(), Some(sock_opt),tls_settings);
-
-        let mut http_proxy = http_proxy_service(&pingora_server.configuration, http_proxy_app);
-        http_proxy.add_tcp(
-            format!(
-                "0.0.0.0:{}",
-                std::env::var("MPROXY_HTTP_PORT").expect("MPROXY_HTTP_PORT not set")
-            )
-            .as_str(),
-        );
-
-
-        pingora_server.add_service(http_proxy);
-        pingora_server.add_service(proxy);
+            pingora_server.add_service(proxy);
+        } else {
+            info!("No or Invalid HTTPS Port Set - HTTPS Disabled!");
+        }
 
         pingora_server.run(RunArgs::default());
     }
