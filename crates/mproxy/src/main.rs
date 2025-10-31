@@ -15,7 +15,7 @@ use crate::cert_store::CertStore;
 mod server;
 mod cert_store;
 mod cert_handler;
-mod s3_proxy;
+// mod s3_proxy;
 
 #[tokio::main]
 async fn main() {
