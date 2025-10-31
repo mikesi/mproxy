@@ -1,6 +1,5 @@
 pub mod server {
     use async_trait::async_trait;
-    use log::error;
     use mproxy_common::{acme_challenge_path};
     use pingora::http::{ResponseHeader, StatusCode};
     use pingora::listeners::tls::TlsSettings;
@@ -17,7 +16,7 @@ pub mod server {
     use std::fs;
     use std::path::PathBuf;
     use std::time::Duration;
-    use tracing::info;
+    use tracing::{error, info};
     use bytes::Bytes;
     use crate::cert_handler::CertHandler;
     use crate::cert_store::CertStore;
@@ -150,8 +149,8 @@ pub mod server {
                                   session.req_header().method.to_string(),
                                   _ctx.server_name.as_deref().unwrap_or(""),
                                   session.req_header().uri.path_and_query().unwrap().to_string());
-            // Log only global errors here
-            if response_code > 204 {
+            // Log only global err`ors here
+            if response_code > 307 {
                 error!("{}", log_msg);
             } else {
                 // info!("{}", log_msg);
@@ -233,11 +232,11 @@ pub mod server {
                 redirect_response_header.insert_header("Location", location.clone())?;
                 redirect_response_header.insert_header("Content-Length", "0")?;
                 session.write_response_header(Box::new(redirect_response_header), true).await?;
-                return Ok(true);
+                Ok(true)
             } else {
                 info!("No host specified!");
                 session.respond_error(404).await?;
-                return Ok(true);
+                Ok(true)
             }
         }
 
@@ -255,7 +254,7 @@ pub mod server {
                                   session.req_header().uri.path_and_query().unwrap().to_string());
             info!("{:?}", _e);
             // Log only global errors here
-            if response_code > 204 {
+            if response_code > 307 {
                 info!("{}", log_msg);
             } else {
                 info!("{}", log_msg);
@@ -273,7 +272,7 @@ pub mod server {
         pingora_server.configuration = conf.into();
         pingora_server.bootstrap();
 
-        let http_port = std::env::var("MPROXY_HTTP_PORT").unwrap_or(String::new()).parse::<u16>().unwrap();
+        let http_port = std::env::var("MPROXY_HTTP_PORT").unwrap_or(String::from("0")).parse::<u16>().unwrap();
         if http_port > 0 {
             info!("HTTP Enabled - Port: [{}]",&http_port);
             let http_proxy_app = SimpleHttpProxy::new();
@@ -290,7 +289,7 @@ pub mod server {
             info!("No or Invalid HTTP Port Set - HTTP Disabled!");
         }
 
-        let https_port = std::env::var("MPROXY_HTTPS_PORT").unwrap_or(String::new()).parse::<u16>().unwrap();
+        let https_port = std::env::var("MPROXY_HTTPS_PORT").unwrap_or(String::from("0")).parse::<u16>().unwrap();
         if https_port > 0 {
             info!("HTTPS Enabled - Port: [{}]",https_port);
             let tls_proxy_app = TlsProxyApp {};
