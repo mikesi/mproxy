@@ -57,7 +57,7 @@ impl Certificate {
   }
 
   pub fn from_path(path: PathBuf) -> Certificate {
-    info!("Looad from path: [{}]",&path.to_str().unwrap());
+    info!("Load from path: [{}]",&path.to_str().unwrap());
     let mut cert: Certificate = serde_json::from_str(fs::read_to_string(path).unwrap().as_str()).unwrap();
     cert.parsed_cert_der = RefCell::new(None);
     cert.parsed_inter_cert = RefCell::new(None);

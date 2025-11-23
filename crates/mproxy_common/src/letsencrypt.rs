@@ -199,9 +199,13 @@ pub fn request_certificate(domain: &String, email: &String, aliases: &Vec<String
 
   let persist = FilePersist::new(acme_path());
 
-  let dir = Directory::from_url(persist, url)?;
+  let dir = Directory::from_url(persist, url).map_err(|e| e.to_string())?;
 
-  let acc = dir.account(&email)?;
+  let acc = dir.account(&email).map_err(|e| {
+    error!("Error getting account: {:?}", e);
+    e.to_string()
+  })?;
+
   let v = aliases.iter().map(|s| &s[..]).collect::<Vec<&str>>();
   let mut order_new = acc.new_order(&domain, v.as_slice())?;
 

@@ -15,7 +15,7 @@ use crate::cert_store::CertStore;
 mod server;
 mod cert_store;
 mod cert_handler;
-// mod s3_proxy;
+mod s3_proxy;
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +25,7 @@ async fn main() {
       .expect("setting default subscriber failed");
     dotenv().ok();
     dotenv::from_filename("/etc/mproxy/mproxy.env").ok();
-    info!("Starting MProxy v{} Built@:[{}]", env!("CARGO_PKG_VERSION"),env!("BUILD_DATE"));
+    info!("Starting MProxy v{} Built@:[{}] Profile:[{}]", env!("CARGO_PKG_VERSION"),env!("BUILD_DATE"),env!("PROFILE"));
 
     // try to ensure challenge path
     let challenge_path = acme_challenge_path();
@@ -47,7 +47,6 @@ async fn main() {
 
     let monitor_handle = tokio::spawn(async move {
         loop {
-            // info!("Monitoring...");
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
             cert_store.refresh_hosts();
         }

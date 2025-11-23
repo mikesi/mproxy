@@ -1,25 +1,26 @@
 pub mod server {
+    use crate::cert_handler::CertHandler;
+    use crate::cert_store::CertStore;
+    use crate::s3_proxy::S3Proxy;
     use async_trait::async_trait;
-    use mproxy_common::{acme_challenge_path};
+    use bytes::Bytes;
+    use mproxy_common::acme_challenge_path;
+    use pingora::ErrorSource::Upstream;
     use pingora::http::{ResponseHeader, StatusCode};
     use pingora::listeners::tls::TlsSettings;
-    use pingora::listeners::{TcpSocketOptions, ALPN};
-    use pingora::modules::http::compression::ResponseCompressionBuilder;
+    use pingora::listeners::{ALPN, TcpSocketOptions};
     use pingora::modules::http::HttpModules;
+    use pingora::modules::http::compression::ResponseCompressionBuilder;
     use pingora::prelude::*;
     use pingora::protocols::TcpKeepalive;
-    use pingora::server::configuration::ServerConf;
     use pingora::server::RunArgs;
+    use pingora::server::configuration::ServerConf;
     use pingora::upstreams::peer::PeerOptions;
-    use pingora::ErrorSource::Upstream;
-    use std::fmt::{Debug};
+    use std::fmt::Debug;
     use std::fs;
     use std::path::PathBuf;
     use std::time::Duration;
     use tracing::{error, info};
-    use bytes::Bytes;
-    use crate::cert_handler::CertHandler;
-    use crate::cert_store::CertStore;
 
     #[derive(Clone, Debug)]
     pub struct TlsProxyApp {}
@@ -81,8 +82,13 @@ pub mod server {
                         #[cfg(target_os = "linux")]
                         user_timeout: Duration::from_secs(0),
                     });
-                    peer_options.extra_proxy_headers.insert("X-Forwarded-Proto".to_string(), "https".as_bytes().to_vec());
-                    peer_options.extra_proxy_headers.insert("X-Forwarded-For".to_string(), peer._address.to_string().as_bytes().to_vec());
+                    peer_options
+                        .extra_proxy_headers
+                        .insert("X-Forwarded-Proto".to_string(), "https".as_bytes().to_vec());
+                    peer_options.extra_proxy_headers.insert(
+                        "X-Forwarded-For".to_string(),
+                        peer._address.to_string().as_bytes().to_vec(),
+                    );
                     peer.options = peer_options;
                     Ok(Box::new(peer))
                 }
@@ -110,7 +116,6 @@ pub mod server {
         where
             Self::CTX: Send + Sync,
         {
-
             let host_name = SimpleHttpProxy::get_host(session);
             if host_name.is_none() {
                 error!("No host specified!");
@@ -123,32 +128,62 @@ pub mod server {
             Ok(())
         }
 
-        async fn upstream_request_filter(&self, _session: &mut Session, _upstream_request: &mut RequestHeader, _ctx: &mut Self::CTX) -> Result<()>
+        async fn upstream_request_filter(
+            &self,
+            _session: &mut Session,
+            _upstream_request: &mut RequestHeader,
+            _ctx: &mut Self::CTX,
+        ) -> Result<()>
         where
-          Self::CTX: Send + Sync,
+            Self::CTX: Send + Sync,
         {
-            _upstream_request.insert_header("X-Forwarded-Proto", "https").expect("TODO: panic message");
-            _upstream_request.insert_header("X-Forwarded-Scheme", "https").expect("TODO: panic message");
-            if let Some(ip_str) = _session.client_addr().and_then(|addr| addr.as_inet().map(|addr| addr.ip().to_string())) {
+            _upstream_request
+                .insert_header("X-Forwarded-Proto", "https")
+                .expect("TODO: panic message");
+            _upstream_request
+                .insert_header("X-Forwarded-Scheme", "https")
+                .expect("TODO: panic message");
+            if let Some(ip_str) = _session
+                .client_addr()
+                .and_then(|addr| addr.as_inet().map(|addr| addr.ip().to_string()))
+            {
                 _ctx.client_ip = ip_str.clone();
-                _upstream_request.insert_header("X-Real-IP",ip_str).expect("Cannot add X-Real-IP");
+                _upstream_request
+                    .insert_header("X-Real-IP", ip_str)
+                    .expect("Cannot add X-Real-IP");
             }
             // Replace Cookies with Compressed cookies
-            let parsed_cookies: Vec<&str> = _upstream_request.as_ref().headers.get_all(http::header::COOKIE).iter().map(|x| { x.to_str().unwrap()}).collect();
+            let parsed_cookies: Vec<&str> = _upstream_request
+                .as_ref()
+                .headers
+                .get_all(http::header::COOKIE)
+                .iter()
+                .map(|x| x.to_str().expect("x.to_str() failed"))
+                .collect();
             let compressed_cookies = parsed_cookies.join("; ");
-            _upstream_request.insert_header("Cookie", compressed_cookies).expect("Failed replace/add Cookies");
+            _upstream_request
+                .insert_header("Cookie", compressed_cookies)
+                .expect("Failed replace/add Cookies");
             Ok(())
         }
 
         async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {
             let response_code = session
-              .response_written()
-              .map_or(0, |resp| resp.status.as_u16());
-            let log_msg = format!("[{}] [{}] [{}] - [{}{}]", _ctx.client_ip,
-                                  response_code.to_string(),
-                                  session.req_header().method.to_string(),
-                                  _ctx.server_name.as_deref().unwrap_or(""),
-                                  session.req_header().uri.path_and_query().unwrap().to_string());
+                .response_written()
+                .map_or(0, |resp| resp.status.as_u16());
+            let log_msg = format!(
+                "[{}] [{}] [{}] - [{}{}]",
+                _ctx.client_ip,
+                response_code.to_string(),
+                session.req_header().method.to_string(),
+                _ctx.server_name.as_deref().unwrap_or(""),
+                session
+                    .req_header()
+                    .uri
+                    .path_and_query()
+                    .unwrap()
+                    .to_string()
+            );
             // Log only global err`ors here
             if response_code > 307 {
                 error!("{}", log_msg);
@@ -168,10 +203,10 @@ pub mod server {
 
         pub fn get_host(session: &Session) -> Option<&str> {
             if let Some(host_name) = session.req_header().uri.host() {
-                return Some(host_name)
+                return Some(host_name);
             }
             if let Some(host_name) = session.req_header().headers.get("Host") {
-                return Some(host_name.to_str().unwrap())
+                return Some(host_name.to_str().unwrap());
             }
             None
         }
@@ -198,40 +233,60 @@ pub mod server {
             todo!()
         }
 
-
         async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
         where
-          Self::CTX: Send + Sync,
+            Self::CTX: Send + Sync,
         {
             // Regardless of the host we check if it's letsencrypt challenge request
-            if session.req_header().uri.path().starts_with("/.well-known/acme-challenge/") {
+            if session
+                .req_header()
+                .uri
+                .path()
+                .starts_with("/.well-known/acme-challenge/")
+            {
                 let token = session.req_header().uri.path().split("/").last().unwrap();
-                info!("token: {}",token);
+                info!("token: {}", token);
                 let token_path = PathBuf::from(acme_challenge_path()).join(token);
                 return if token_path.exists() {
-                    info!("Token Path found: [{}]",token_path.display());
+                    info!("Token Path found: [{}]", token_path.display());
                     let mut response_header = ResponseHeader::build(StatusCode::OK, None)?;
-                    response_header.insert_header(http::header::CONTENT_TYPE, "text/plain").expect("Failed to Insert Content-Type Header");
+                    response_header
+                        .insert_header(http::header::CONTENT_TYPE, "text/plain")
+                        .expect("Failed to Insert Content-Type Header");
                     let token_content = fs::read_to_string(token_path).expect("Cannot read token");
-                    info!("Token Content: [{}]",token_content);
-                    session.write_response_header(Box::new(response_header), false).await?;
-                    session.write_response_body(Some(Bytes::copy_from_slice(token_content.as_bytes())), true).await?;
+                    info!("Token Content: [{}]", token_content);
+                    session
+                        .write_response_header(Box::new(response_header), false)
+                        .await?;
+                    session
+                        .write_response_body(
+                            Some(Bytes::copy_from_slice(token_content.as_bytes())),
+                            true,
+                        )
+                        .await?;
                     Ok(true)
                 } else {
-                    info!("Token not found: [{}]",token_path.display());
+                    info!("Token not found: [{}]", token_path.display());
                     session.respond_error(404).await?;
                     Ok(true)
-                }
+                };
             }
             if let Some(host_name) = SimpleHttpProxy::get_host(session) {
                 _ctx.server_name = Some(host_name.to_string().clone());
                 // Redirect to HTTPS all other requests
-                let mut redirect_response_header = ResponseHeader::build(StatusCode::TEMPORARY_REDIRECT, None)?;
-                let uri = session.req_header().uri.path_and_query().map_or("/", |pq| pq.as_str());
+                let mut redirect_response_header =
+                    ResponseHeader::build(StatusCode::TEMPORARY_REDIRECT, None)?;
+                let uri = session
+                    .req_header()
+                    .uri
+                    .path_and_query()
+                    .map_or("/", |pq| pq.as_str());
                 let location = format!("https://{}{}", host_name, uri);
                 redirect_response_header.insert_header("Location", location.clone())?;
                 redirect_response_header.insert_header("Content-Length", "0")?;
-                session.write_response_header(Box::new(redirect_response_header), true).await?;
+                session
+                    .write_response_header(Box::new(redirect_response_header), true)
+                    .await?;
                 Ok(true)
             } else {
                 info!("No host specified!");
@@ -242,22 +297,30 @@ pub mod server {
 
         async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX)
         where
-          Self::CTX: Send + Sync,
+            Self::CTX: Send + Sync,
         {
             let response_code = session
-              .response_written()
-              .map_or(0, |resp| resp.status.as_u16());
-            let log_msg = format!("[{}] [{}] [{}] - [{}{}]", _ctx.client_ip,
-                                  response_code.to_string(),
-                                  session.req_header().method.to_string(),
-                                  _ctx.server_name.as_deref().unwrap_or(""),
-                                  session.req_header().uri.path_and_query().unwrap().to_string());
-            info!("{:?}", _e);
+                .response_written()
+                .map_or(0, |resp| resp.status.as_u16());
+            let log_msg = format!(
+                "[{}] [{}] [{}] - [{}{}]",
+                _ctx.client_ip,
+                response_code.to_string(),
+                session.req_header().method.to_string(),
+                _ctx.server_name.as_deref().unwrap_or(""),
+                session
+                    .req_header()
+                    .uri
+                    .path_and_query()
+                    .unwrap()
+                    .to_string()
+            );
             // Log only global errors here
             if response_code > 307 {
                 info!("{}", log_msg);
             } else {
-                info!("{}", log_msg);
+                error!("{}", log_msg);
+                error!("{:?}", _e);
             }
         }
     }
@@ -268,30 +331,30 @@ pub mod server {
         let mut conf = ServerConf::default();
         conf.upstream_keepalive_pool_size = 4096;
         conf.threads = 32;
-        conf.work_stealing  = true;
+        conf.work_stealing = true;
         pingora_server.configuration = conf.into();
         pingora_server.bootstrap();
 
-        let http_port = std::env::var("MPROXY_HTTP_PORT").unwrap_or(String::from("0")).parse::<u16>().unwrap();
+        let http_port = std::env::var("MPROXY_HTTP_PORT")
+            .unwrap_or(String::from("0"))
+            .parse::<u16>()
+            .unwrap();
         if http_port > 0 {
-            info!("HTTP Enabled - Port: [{}]",&http_port);
+            info!("HTTP Enabled - Port: [{}]", &http_port);
             let http_proxy_app = SimpleHttpProxy::new();
             let mut http_proxy = http_proxy_service(&pingora_server.configuration, http_proxy_app);
-            http_proxy.add_tcp(
-                format!(
-                    "0.0.0.0:{}",
-                    http_port
-                )
-                  .as_str(),
-            );
+            http_proxy.add_tcp(format!("0.0.0.0:{}", http_port).as_str());
             pingora_server.add_service(http_proxy);
         } else {
             info!("No or Invalid HTTP Port Set - HTTP Disabled!");
         }
 
-        let https_port = std::env::var("MPROXY_HTTPS_PORT").unwrap_or(String::from("0")).parse::<u16>().unwrap();
+        let https_port = std::env::var("MPROXY_HTTPS_PORT")
+            .unwrap_or(String::from("0"))
+            .parse::<u16>()
+            .unwrap();
         if https_port > 0 {
-            info!("HTTPS Enabled - Port: [{}]",https_port);
+            info!("HTTPS Enabled - Port: [{}]", https_port);
             let tls_proxy_app = TlsProxyApp {};
             let cert_handler = CertHandler::new();
 
@@ -303,8 +366,8 @@ pub mod server {
 
             let mut tls_settings = TlsSettings::with_callbacks(cert_handler).unwrap();
             tls_settings
-              .set_min_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_3))
-              .unwrap();
+                .set_min_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_3))
+                .unwrap();
             tls_settings.enable_h2();
             tls_settings.set_alpn(ALPN::H2H1);
 
@@ -318,11 +381,31 @@ pub mod server {
             });
             sock_opt.so_reuseport = Some(true);
 
-            proxy.add_tls_with_settings(format!("0.0.0.0:{}",https_port).as_str(), Some(sock_opt),tls_settings);
+            proxy.add_tls_with_settings(
+                format!("0.0.0.0:{}", https_port).as_str(),
+                Some(sock_opt),
+                tls_settings,
+            );
 
             pingora_server.add_service(proxy);
         } else {
             info!("No or Invalid HTTPS Port Set - HTTPS Disabled!");
+        }
+
+        let s3_port = std::env::var("MPROXY_S3_PORT")
+            .unwrap_or(String::from("0"))
+            .parse::<u16>()
+            .unwrap();
+        if std::env::var("MPROXY_S3_ENABLED")
+            .map(|s| s.to_lowercase() == "true")
+            .unwrap_or(false)
+            && s3_port > 0
+        {
+            info!("S3 Enabled");
+            let s3_proxy_app = S3Proxy::new();
+            let mut s3_proxy = http_proxy_service(&pingora_server.configuration, s3_proxy_app);
+            s3_proxy.add_tcp(format!("0.0.0.0:{}", s3_port).as_str());
+            pingora_server.add_service(s3_proxy);
         }
 
         pingora_server.run(RunArgs::default());

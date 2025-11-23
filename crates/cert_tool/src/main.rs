@@ -36,13 +36,14 @@ enum Commands {
     #[arg(short = 's', long = "staging", required = false,default_value_t = false)]
     staging: bool,
   },
-  /// Tries to renew all certificates for hosts in host.toml that will expire soon
+  /// Tries to renew all certificates for hosts in host.toml that will expire soon.\n
+  /// Make sure MPROXY_LETSENCRYPT_EMAIL is defined
   CertAutoRenew {
     /// Sets the Let's Encrypt staging directory - for testing purposes
     #[arg(short = 's', long = "staging", required = false,default_value_t = false)]
     staging: bool,
   },
-  /// Renew loads a current certificate from store
+  /// Renew loads a current certificate from store. \n
   /// Make sure MPROXY_LETSENCRYPT_EMAIL is defined
   CertRenew {
     /// The name of the directory that contains the certificate
@@ -113,7 +114,7 @@ async fn main() {
       }
     }
     Commands::ReloadServer { } => {
-
+      todo!()
     }
     Commands::Import { input_dir } => {
       letsencrypt::import_from_letsencrypt_path(input_dir).await;
