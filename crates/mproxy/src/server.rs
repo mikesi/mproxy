@@ -317,10 +317,10 @@ pub mod server {
             );
             // Log only global errors here
             if response_code > 307 {
-                info!("{}", log_msg);
-            } else {
                 error!("{}", log_msg);
                 error!("{:?}", _e);
+            } else {
+                info!("{}", log_msg);
             }
         }
     }
