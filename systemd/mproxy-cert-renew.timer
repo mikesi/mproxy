@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily renewal of Let's Encrypt certificates for mproxy
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

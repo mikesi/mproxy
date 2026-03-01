@@ -83,7 +83,7 @@ async fn main() {
 
   match &cli.command {
     Commands::CertAutoRenew { staging } => {
-
+      letsencrypt::renew_certs_in_store(*staging);
     },
     Commands::CertFind { domain } => {
       let cert = letsencrypt::find_certificate(domain.into());

@@ -57,7 +57,7 @@ impl Certificate {
   }
 
   pub fn from_path(path: PathBuf) -> Certificate {
-    info!("Load from path: [{}]",&path.to_str().unwrap());
+    // info!("Load from path: [{}]",&path.to_str().unwrap());
     let mut cert: Certificate = serde_json::from_str(fs::read_to_string(path).unwrap().as_str()).unwrap();
     cert.parsed_cert_der = RefCell::new(None);
     cert.parsed_inter_cert = RefCell::new(None);
@@ -76,6 +76,10 @@ impl Certificate {
 
   pub fn get_host_name(&self) -> String {
     self.host_name.clone()
+  }
+  
+  pub fn get_aliases(&self) -> Option<Vec<String>> {
+    self.host_names.clone()
   }
 
   pub fn set_host_name(&mut self, host_name: String) {

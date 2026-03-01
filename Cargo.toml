@@ -25,7 +25,7 @@ chrono = {version = "0.4.42", features = ["serde"]}
 mproxy_common = { path = "crates/mproxy_common" }
 pingora = { version = "0.6.0", features = ["proxy", "cache", "openssl"] }
 toml = { version = "0.9.8", features = ["serde"]}
-
+reqwest = {version = "0.12.24", features = ["h2", "json"]}
 openssl = { version = "*", features = ["vendored"] }
 
 

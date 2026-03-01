@@ -45,9 +45,24 @@ echo "Installing systemd service file..."
 cp systemd/mproxy.service /etc/systemd/system/
 chmod 644 /etc/systemd/system/mproxy.service
 
+# Install certificate renewal script
+echo "Installing certificate renewal script..."
+cp renew-certs-and-restart-mproxy.sh /usr/local/sbin/renew-certs-and-restart-mproxy.sh
+chmod 755 /usr/local/sbin/renew-certs-and-restart-mproxy.sh
+
+# Install systemd timer/service for certificate renewal
+echo "Installing certificate renewal systemd units..."
+cp systemd/mproxy-cert-renew.service /etc/systemd/system/
+cp systemd/mproxy-cert-renew.timer /etc/systemd/system/
+chmod 644 /etc/systemd/system/mproxy-cert-renew.service
+chmod 644 /etc/systemd/system/mproxy-cert-renew.timer
+
 # Reload systemd
 echo "Reloading systemd daemon..."
 systemctl daemon-reload
+
+echo "Enabling certificate renewal timer..."
+systemctl enable --now mproxy-cert-renew.timer
 
 echo ""
 echo "Installation complete!"

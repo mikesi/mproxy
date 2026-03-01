@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew Let's Encrypt certificates and restart mproxy if renewed
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/mproxy/mproxy.env
+ExecStart=/usr/local/sbin/renew-certs-and-restart-mproxy.sh

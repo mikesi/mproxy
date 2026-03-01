@@ -13,6 +13,22 @@ fi
 
 echo "Uninstalling MProxy systemd service..."
 
+# Stop/disable cert renew timer if present
+if systemctl is-active --quiet mproxy-cert-renew.timer 2>/dev/null; then
+    echo "Stopping mproxy-cert-renew timer..."
+    systemctl stop mproxy-cert-renew.timer
+fi
+
+if systemctl is-enabled --quiet mproxy-cert-renew.timer 2>/dev/null; then
+    echo "Disabling mproxy-cert-renew timer..."
+    systemctl disable mproxy-cert-renew.timer
+fi
+
+if systemctl is-active --quiet mproxy-cert-renew.service 2>/dev/null; then
+    echo "Stopping mproxy-cert-renew service..."
+    systemctl stop mproxy-cert-renew.service
+fi
+
 # Stop the service if it's running
 if systemctl is-active --quiet mproxy; then
     echo "Stopping mproxy service..."
@@ -29,6 +45,23 @@ fi
 if [ -f /etc/systemd/system/mproxy.service ]; then
     echo "Removing systemd service file..."
     rm /etc/systemd/system/mproxy.service
+fi
+
+# Remove cert renew systemd unit files
+if [ -f /etc/systemd/system/mproxy-cert-renew.timer ]; then
+    echo "Removing mproxy-cert-renew timer file..."
+    rm /etc/systemd/system/mproxy-cert-renew.timer
+fi
+
+if [ -f /etc/systemd/system/mproxy-cert-renew.service ]; then
+    echo "Removing mproxy-cert-renew service file..."
+    rm /etc/systemd/system/mproxy-cert-renew.service
+fi
+
+# Remove installed certificate renewal script
+if [ -f /usr/local/sbin/renew-certs-and-restart-mproxy.sh ]; then
+    echo "Removing certificate renewal script..."
+    rm /usr/local/sbin/renew-certs-and-restart-mproxy.sh
 fi
 
 # Reload systemd

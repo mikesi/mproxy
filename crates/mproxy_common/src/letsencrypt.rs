@@ -1,5 +1,5 @@
 use crate::certificates::Certificate;
-use crate::{acme_challenge_path, acme_path, cert_path};
+use crate::{acme_challenge_path, acme_path, cert_path, letsencrypt};
 use std::fs;
 use std::path::{PathBuf};
 use acme_v2::{create_p384_key, Directory, DirectoryUrl, Error};
@@ -9,6 +9,7 @@ use x509_parser::der_parser::oid;
 use x509_parser::extensions::{GeneralName, ParsedExtension};
 use x509_parser::parse_x509_certificate;
 use x509_parser::pem::parse_x509_pem;
+use crate::host_config::HostsConfigLoader;
 
 pub async fn import_from_letsencrypt_path(input_dir: &String) {
   let input_dir_path = PathBuf::from(input_dir);
@@ -167,6 +168,9 @@ fn parse_hostname(in_str: &str) -> String {
   host_name
 }
 
+pub fn autorenew_certificates(staging: bool){
+
+}
 
 // Renew is actually requesting a new certificate
 // but we get the info from the certificate object itself
@@ -272,6 +276,49 @@ fn le_cert_to_cert_store(le_cert: acme_v2::Certificate, domain: &String, aliases
   fs::write(&cert_dest_file_path, serde_json::to_string_pretty(&new_cert).unwrap()).unwrap();
 }
 
+
+pub fn renew_certs_in_store(staging: bool){
+ let base_path = PathBuf::from(cert_path());
+  let config_loader = HostsConfigLoader::new();
+  let host_list = config_loader.load();
+  info!("Host config list: {:#?}", host_list);
+  if base_path.exists(){
+    for entry in fs::read_dir(&base_path).unwrap() {
+      let entry = entry.unwrap();
+      let path = entry.path();
+      if path.is_dir() {
+        let cert_path = path.join("cert.json");
+        if cert_path.exists() {
+          let cert = Certificate::from_path(cert_path);
+          // info!("Found certificate: [{}] aliases: [{:?}]", cert.get_host_name(), cert.get_aliases());
+          let expire_date = cert.get_valid_until_date_time().unwrap().timestamp();
+          // info!("Expire Date: {}", cert.get_valid_until_date_time().unwrap().to_rfc3339());
+          let exp_10days = chrono::Utc::now().timestamp() + chrono::Duration::days(10).num_seconds();
+          let exp_now = chrono::Utc::now().timestamp();
+          if expire_date < exp_now {
+            host_list.host_configs.iter().for_each(|host_config| {
+              if host_config.host_name.eq(&cert.get_host_name()) {
+                error!("Certificate is EXPIRED!");
+                error!("Domain: [{}]",&cert.get_host_name());
+                letsencrypt::renew_certificate(&cert.get_host_name(),&std::env::var("MPROXY_LETSENCRYPT_EMAIL").unwrap(),staging);
+              }
+            });
+          } else if expire_date < exp_10days {
+            host_list.host_configs.iter().for_each(|host_config| {
+              if host_config.host_name.eq(&cert.get_host_name()) {
+                info!("Certificate is expiring soon, renewing...: {}",cert);
+                info!("Found in Host Config ... Try Renew");
+                letsencrypt::renew_certificate(&cert.get_host_name(),&std::env::var("MPROXY_LETSENCRYPT_EMAIL").unwrap(),staging);
+              }
+            });
+          }
+        }
+      }
+    }
+  } else {
+    error!("Certificate store does not exist: {}",cert_path());
+  }
+}
 
 pub fn find_certificate(domain: String) -> Option<Certificate> {
   let cert_path = PathBuf::from(cert_path()).join(domain).join("cert.json");

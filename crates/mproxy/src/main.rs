@@ -41,7 +41,7 @@ async fn main() {
 
 
     let mut cert_store = CertStore::new();
-
+    
     cert_store.load_certs_from_host_config_list(&config_loader.load());
     cert_store.set_host_config_loader(config_loader);
 
