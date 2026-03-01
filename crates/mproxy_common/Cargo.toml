@@ -11,9 +11,9 @@ tracing.workspace = true
 serde_json.workspace = true
 x509-parser.workspace = true
 chrono.workspace = true
-time = "0.3.44"
+time = "0.3.47"
 # ACMEv2 - Let's Encrypt
 acme-v2 = "0.9.3"
 toml.workspace = true
 pingora.workspace = true
-log = "0.4.27"
+log = "0.4.29"
