@@ -184,11 +184,15 @@ pub mod server {
                     .unwrap()
                     .to_string()
             );
+            if _e.is_some(){
+                error!("Error: {}", log_msg);
+                error!("SERVER_ERROR {:?}", _e);
+            }
             // Log only global err`ors here
             if response_code > 307 {
                 error!("{}", log_msg);
             } else {
-                // info!("{}", log_msg);
+                info!("{}", log_msg);
             }
         }
     }

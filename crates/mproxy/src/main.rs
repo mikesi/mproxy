@@ -17,6 +17,11 @@ mod cert_store;
 mod cert_handler;
 mod s3_proxy;
 
+extern crate jemallocator;
+
+#[global_allocator]
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() {
     let subscriber = FmtSubscriber::builder().with_line_number(true).with_ansi(true).with_file(true)

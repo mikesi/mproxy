@@ -21,6 +21,7 @@ tracing-subscriber.workspace = true
 dotenv.workspace = true
 pingora.workspace = true
 reqwest.workspace = true
+jemallocator.workspace = true
 async-trait = "0.1.89"
 http = "1.4.0"
 ctrlc = {version = "3.5.2", features = ["termination"]}

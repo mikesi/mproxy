@@ -27,6 +27,7 @@ pingora = { version = "0.7.0", features = ["proxy", "cache", "openssl"] }
 toml = { version = "0.9.12", features = ["serde"]}
 reqwest = {version = "0.12.28", features = ["h2", "json"]}
 openssl = { version = "*", features = ["vendored"] }
+jemallocator = "0.3"
 
 
 [workspace.lints.clippy]
