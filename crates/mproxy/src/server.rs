@@ -1,6 +1,7 @@
 pub mod server {
     use crate::cert_handler::CertHandler;
     use crate::cert_store::CertStore;
+    use crate::metrics::METRICS;
     use crate::s3_proxy::S3Proxy;
     use async_trait::async_trait;
     use bytes::Bytes;
@@ -27,9 +28,13 @@ pub mod server {
 
     #[derive(Debug)]
     pub struct HttpCtx {
-        server_name: Option<String>,
-        cert_store: CertStore,
-        client_ip: String,
+        pub server_name: Option<String>,
+        pub cert_store: CertStore,
+        pub client_ip: String,
+        pub request_start: std::time::Instant,
+        pub request_size: u64,
+        pub response_size: u64,
+        pub tracked_connection: bool,
     }
 
     #[async_trait]
@@ -41,6 +46,10 @@ pub mod server {
                 server_name: None,
                 cert_store: CertStore::new(),
                 client_ip: String::new(),
+                request_start: std::time::Instant::now(),
+                request_size: 0,
+                response_size: 0,
+                tracked_connection: false,
             }
         }
 
@@ -122,9 +131,12 @@ pub mod server {
                 let _ = session.respond_error(502).await;
                 return Ok(());
             }
-
             ctx.server_name = Some(host_name.unwrap().to_string());
-
+            ctx.request_start = std::time::Instant::now();
+            ctx.request_size = 0;
+            ctx.response_size = 0;
+            ctx.tracked_connection = true;
+            METRICS.increment_active_connections();
             Ok(())
         }
 
@@ -152,6 +164,11 @@ pub mod server {
                     .insert_header("X-Real-IP", ip_str)
                     .expect("Cannot add X-Real-IP");
             }
+            if let Some(content_length) = _upstream_request.headers.get("content-length") {
+                if let Ok(size) = content_length.to_str().and_then(|s| Ok(s.parse::<u64>().unwrap_or(0))) {
+                    _ctx.request_size = size;
+                }
+            }
             // Replace Cookies with Compressed cookies
             let parsed_cookies: Vec<&str> = _upstream_request
                 .as_ref()
@@ -171,24 +188,24 @@ pub mod server {
             let response_code = session
                 .response_written()
                 .map_or(0, |resp| resp.status.as_u16());
+            let duration = _ctx.request_start.elapsed().as_secs_f64();
+            let host = _ctx.server_name.as_deref().unwrap_or("unknown");
+            METRICS.record_request(response_code, host, duration, _ctx.request_size, _ctx.response_size);
+            if _ctx.tracked_connection {
+                METRICS.decrement_active_connections();
+            }
             let log_msg = format!(
                 "[{}] [{}] [{}] - [{}{}]",
                 _ctx.client_ip,
-                response_code.to_string(),
-                session.req_header().method.to_string(),
+                response_code,
+                session.req_header().method,
                 _ctx.server_name.as_deref().unwrap_or(""),
-                session
-                    .req_header()
-                    .uri
-                    .path_and_query()
-                    .unwrap()
-                    .to_string()
+                session.req_header().uri.path_and_query().unwrap()
             );
-            if _e.is_some(){
+            if _e.is_some() {
                 error!("Error: {}", log_msg);
                 error!("SERVER_ERROR {:?}", _e);
             }
-            // Log only global err`ors here
             if response_code > 307 {
                 error!("{}", log_msg);
             } else {
@@ -225,13 +242,17 @@ pub mod server {
                 server_name: None,
                 cert_store: CertStore::new(),
                 client_ip: String::new(),
+                request_start: std::time::Instant::now(),
+                request_size: 0,
+                response_size: 0,
+                tracked_connection: false,
             }
         }
 
         async fn upstream_peer(
             &self,
             _session: &mut Session,
-            ctx: &mut Self::CTX,
+            _ctx: &mut Self::CTX,
         ) -> Result<Box<HttpPeer>> {
             info!("PEER");
             todo!()
@@ -306,20 +327,20 @@ pub mod server {
             let response_code = session
                 .response_written()
                 .map_or(0, |resp| resp.status.as_u16());
+            let duration = _ctx.request_start.elapsed().as_secs_f64();
+            let host = _ctx.server_name.as_deref().unwrap_or("unknown");
+            METRICS.record_request(response_code, host, duration, _ctx.request_size, _ctx.response_size);
+            if _ctx.tracked_connection {
+                METRICS.decrement_active_connections();
+            }
             let log_msg = format!(
                 "[{}] [{}] [{}] - [{}{}]",
                 _ctx.client_ip,
-                response_code.to_string(),
-                session.req_header().method.to_string(),
+                response_code,
+                session.req_header().method,
                 _ctx.server_name.as_deref().unwrap_or(""),
-                session
-                    .req_header()
-                    .uri
-                    .path_and_query()
-                    .unwrap()
-                    .to_string()
+                session.req_header().uri.path_and_query().unwrap()
             );
-            // Log only global errors here
             if response_code > 307 {
                 error!("{}", log_msg);
                 error!("{:?}", _e);

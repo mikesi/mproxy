@@ -5,6 +5,8 @@ use dotenv::dotenv;
 use mproxy_common::{cert_path, certificates::Certificate, letsencrypt};
 use std::fs;
 use std::path::PathBuf;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
@@ -60,7 +62,15 @@ enum Commands {
   },
   /// Reloads the server to apply new certificates and or changes in hosts.toml
   ReloadServer {
-
+    /// Path to the admin Unix socket
+    #[arg(short = 'S', long = "socket", required = false, default_value = "/var/run/mproxy_admin.sock")]
+    socket: String,
+  },
+  /// Fetches and displays Prometheus metrics from the running mproxy instance
+  Metrics {
+    /// Host and port of the metrics server
+    #[arg(short = 'u', long = "url", required = false, default_value = "http://127.0.0.1:9876/metrics")]
+    url: String,
   },
   /// Exports certificate, private key, and hosts for a given hostname
   Export {
@@ -113,8 +123,27 @@ async fn main() {
         }
       }
     }
-    Commands::ReloadServer { } => {
-      todo!()
+    Commands::ReloadServer { socket } => {
+      match reload_server_via_socket(socket).await {
+        Ok(response) => {
+          println!("{}", response);
+        }
+        Err(e) => {
+          eprintln!("Error reloading server: {}", e);
+          std::process::exit(1);
+        }
+      }
+    }
+    Commands::Metrics { url } => {
+      match fetch_metrics(url).await {
+        Ok(body) => {
+          println!("{}", body);
+        }
+        Err(e) => {
+          eprintln!("Error fetching metrics: {}", e);
+          std::process::exit(1);
+        }
+      }
     }
     Commands::Import { input_dir } => {
       letsencrypt::import_from_letsencrypt_path(input_dir).await;
@@ -162,7 +191,7 @@ async fn main() {
                 println!();
               } else {
                 println!("--- Private Key ---");
-                println!("(No private key data available)");
+                println!("   (No private key data available)");
                 println!();
               }
             }
@@ -179,5 +208,57 @@ async fn main() {
         }
       }
     }
+  }
+}
+
+async fn fetch_metrics(url: &str) -> Result<String, Box<dyn std::error::Error>> {
+  let mut stream = tokio::net::TcpStream::connect(
+    url.trim_start_matches("http://")
+      .split('/')
+      .next()
+      .unwrap_or("127.0.0.1:9876"),
+  ).await?;
+
+  let path = url.find("://")
+    .and_then(|i| url[i + 3..].find('/').map(|j| &url[i + 3 + j..]))
+    .unwrap_or("/metrics");
+
+  let host = url.trim_start_matches("http://")
+    .split('/')
+    .next()
+    .unwrap_or("127.0.0.1:9876");
+
+  let request = format!(
+    "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+    path, host
+  );
+  stream.write_all(request.as_bytes()).await?;
+
+  let mut response = String::new();
+  stream.read_to_string(&mut response).await?;
+
+  if let Some(body_start) = response.find("\r\n\r\n") {
+    Ok(response[body_start + 4..].to_string())
+  } else {
+    Ok(response)
+  }
+}
+
+async fn reload_server_via_socket(socket_path: &str) -> Result<String, Box<dyn std::error::Error>> {
+  let mut stream = UnixStream::connect(socket_path).await?;
+
+  let request = format!(
+    "POST /admin/reload-certs HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+  );
+  stream.write_all(request.as_bytes()).await?;
+
+  let mut response = String::new();
+  stream.read_to_string(&mut response).await?;
+
+  // Extract the body from the HTTP response
+  if let Some(body_start) = response.find("\r\n\r\n") {
+    Ok(response[body_start + 4..].to_string())
+  } else {
+    Ok(response)
   }
 }

@@ -1,0 +1,53 @@
+groups:
+  - name: mproxy
+    rules:
+      - alert: MproxyDown
+        expr: up{job="mproxy"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "mproxy is unreachable"
+          description: "Prometheus cannot scrape mproxy metrics from {{ $labels.instance }}"
+
+      - alert: HighErrorRate
+        expr: |
+          rate(mproxy_requests_by_status{status_code=~"5.."}[5m])
+          /
+          rate(mproxy_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.instance }}"
+          description: "5xx error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      - alert: HighLatencyP95
+        expr: histogram_quantile(0.95, rate(mproxy_request_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on {{ $labels.instance }}"
+          description: "p95 request latency is {{ $value }}s"
+
+
+      - alert: HighMemoryUsage
+        expr: |
+          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+          / node_memory_MemTotal_bytes > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Less than 10% disk space remaining"

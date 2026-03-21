@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'mproxy-monitor'
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  - job_name: 'mproxy'
+    static_configs:
+      - targets: ['MPROXY_SERVER_IP:9876']
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    metrics_path: /metrics
+
+  - job_name: 'mproxy-node'
+    static_configs:
+      - targets: ['MPROXY_SERVER_IP:9100']
+    scrape_interval: 30s
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

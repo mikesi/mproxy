@@ -26,6 +26,8 @@ async-trait = "0.1.89"
 http = "1.4.0"
 ctrlc = {version = "3.5.2", features = ["termination"]}
 bytes = "1.11.1"
+prometheus = "0.14.0"
+hyper = { version = "0.14", features = ["full"] }
 
 [build-dependencies]
 chrono.workspace = true

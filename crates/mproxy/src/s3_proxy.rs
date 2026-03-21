@@ -3,6 +3,8 @@ use pingora::Error;
 use pingora::http::ResponseHeader;
 use pingora::prelude::*;
 use tracing::{error, info};
+use crate::metrics::METRICS;
+use crate::server::server::HttpCtx;
 
 #[derive(Clone, Debug)]
 pub struct S3Proxy {
@@ -41,7 +43,7 @@ impl S3Proxy {
             auth_uri,
             s3_server,
             s3_region,
-            s3_is_tls
+            s3_is_tls,
         }
     }
 
@@ -50,25 +52,31 @@ impl S3Proxy {
     }
 }
 
-#[derive(Debug)]
-pub struct HttpCtx {
-
-}
-
 #[async_trait]
 impl ProxyHttp for S3Proxy {
     type CTX = HttpCtx;
 
-    fn new_ctx(&self) -> <Self as ProxyHttp>::CTX { HttpCtx {} }
+    fn new_ctx(&self) -> Self::CTX {
+        use crate::cert_store::CertStore;
+        HttpCtx {
+            server_name: None,
+            cert_store: CertStore::new(),
+            client_ip: String::new(),
+            request_start: std::time::Instant::now(),
+            request_size: 0,
+            response_size: 0,
+            tracked_connection: false,
+        }
+    }
 
     async fn upstream_peer(&self, _session: &mut Session, _ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
-        let peer = HttpPeer::new(self.s3_server.clone(),self.s3_is_tls,self.host.clone());
+        let peer = HttpPeer::new(self.s3_server.clone(), self.s3_is_tls, self.host.clone());
         Ok(Box::new(peer))
     }
 
     async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
     where
-        Self::CTX: Send + Sync
+        Self::CTX: Send + Sync,
     {
         let method = &session.req_header().method;
 
@@ -78,16 +86,16 @@ impl ProxyHttp for S3Proxy {
             response_header.insert_header("Access-Control-Allow-Origin", "*")?;
             response_header.insert_header("Access-Control-Allow-Methods", "GET, OPTIONS")?;
             response_header.insert_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")?;
-            response_header.insert_header("Access-Control-Max-Age", "86400")?; // 24 hours
+            response_header.insert_header("Access-Control-Max-Age", "86400")?;
             session.write_response_header(Box::new(response_header), true).await.expect("Cannot write response _header for CORS");
-            return Ok(true)
+            return Ok(true);
         }
 
         // we support only OPTIONS and GET
         if method != http::method::Method::GET {
-            error!("S3 - Invalid Request Method called: [{}]",method);
+            error!("S3 - Invalid Request Method called: [{}]", method);
             session.respond_error(405).await.expect("Cannot respond with error");
-            return Ok(true)
+            return Ok(true);
         }
 
         let req_uri_path = &session.req_header().uri.path();
@@ -95,7 +103,7 @@ impl ProxyHttp for S3Proxy {
         // uri path must start with the prefix defined
         if !req_uri_path.starts_with(self.request_uri_prefix.as_str()) {
             session.respond_error(404).await.expect("Cannot respond with error - request uri prefix");
-            return Ok(true)
+            return Ok(true);
         }
 
         let parsed_path = &mut req_uri_path.split("/");
@@ -104,7 +112,7 @@ impl ProxyHttp for S3Proxy {
         if !self.allowed_buckets.contains(&bucket_name.to_string()) {
             error!("Bucket {} not allowed", bucket_name);
             session.respond_error(404).await.expect("Cannot respond with error - allowed buckets");
-            return Ok(true)
+            return Ok(true);
         }
 
         let _new_req_path_without_prefix = req_uri_path
@@ -113,45 +121,35 @@ impl ProxyHttp for S3Proxy {
             .to_string();
 
         // Set the HOST to the S3 Host
-        session.req_header_mut().insert_header(http::header::HOST,self.host.clone())?;
+        session.req_header_mut().insert_header(http::header::HOST, self.host.clone())?;
         let _header = session.req_header_mut();
-
-        // Sign request and breakup to parts
-
-        // copy request headers to upstream request
-
 
         todo!()
     }
-    // async fn early_request_filter(&self, _session: &mut Session, _ctx: &mut Self::CTX) -> Result<()>
-    // where
-    //     Self::CTX: Send + Sync
-    // {
-    //     // todo!()
-    // }
-
-    // fn upstream_response_filter(&self, _session: &mut Session, _upstream_response: &mut ResponseHeader, _ctx: &mut Self::CTX) -> Result<()> {
-    //
-    // }
 
     async fn response_filter(&self, _session: &mut Session, _upstream_response: &mut ResponseHeader, _ctx: &mut Self::CTX) -> Result<()>
     where
-        Self::CTX: Send + Sync
+        Self::CTX: Send + Sync,
     {
         todo!()
     }
 
     async fn logging(&self, _session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX)
     where
-        Self::CTX: Send + Sync
+        Self::CTX: Send + Sync,
     {
+        let response_code = _session
+            .response_written()
+            .map_or(0, |resp| resp.status.as_u16());
+        let duration = _ctx.request_start.elapsed().as_secs_f64();
+        METRICS.record_request(response_code, "s3-proxy", duration, _ctx.request_size, _ctx.response_size);
+        if _ctx.tracked_connection {
+            METRICS.decrement_active_connections();
+        }
         if _e.is_some() {
             error!("Error: [{}] [{:?}]", _session.req_header().uri, _e.unwrap());
         } else {
             info!("Request: {:?}", _session.req_header().uri);
         }
-        // todo!()
     }
-
-
 }
