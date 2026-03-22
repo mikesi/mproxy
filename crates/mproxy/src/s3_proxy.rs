@@ -65,13 +65,26 @@ impl ProxyHttp for S3Proxy {
             request_start: std::time::Instant::now(),
             request_size: 0,
             response_size: 0,
-            tracked_connection: false,
         }
     }
 
     async fn upstream_peer(&self, _session: &mut Session, _ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
         let peer = HttpPeer::new(self.s3_server.clone(), self.s3_is_tls, self.host.clone());
         Ok(Box::new(peer))
+    }
+
+    async fn early_request_filter(
+        &self,
+        _session: &mut Session,
+        _ctx: &mut Self::CTX,
+    ) -> Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        _ctx.request_start = std::time::Instant::now();
+        _ctx.request_size = 0;
+        _ctx.response_size = 0;
+        Ok(())
     }
 
     async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
@@ -134,6 +147,38 @@ impl ProxyHttp for S3Proxy {
         todo!()
     }
 
+    async fn request_body_filter(
+        &self,
+        _session: &mut Session,
+        body: &mut Option<bytes::Bytes>,
+        _end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        if let Some(data) = body {
+            ctx.request_size += data.len() as u64;
+        }
+        Ok(())
+    }
+
+    fn response_body_filter(
+        &self,
+        _session: &mut Session,
+        body: &mut Option<bytes::Bytes>,
+        _end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<std::option::Option<std::time::Duration>>
+    where
+        Self::CTX: Send + Sync,
+    {
+        if let Some(data) = body {
+            ctx.response_size += data.len() as u64;
+        }
+        Ok(None)
+    }
+
     async fn logging(&self, _session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX)
     where
         Self::CTX: Send + Sync,
@@ -143,9 +188,6 @@ impl ProxyHttp for S3Proxy {
             .map_or(0, |resp| resp.status.as_u16());
         let duration = _ctx.request_start.elapsed().as_secs_f64();
         METRICS.record_request(response_code, "s3-proxy", duration, _ctx.request_size, _ctx.response_size);
-        if _ctx.tracked_connection {
-            METRICS.decrement_active_connections();
-        }
         if _e.is_some() {
             error!("Error: [{}] [{:?}]", _session.req_header().uri, _e.unwrap());
         } else {

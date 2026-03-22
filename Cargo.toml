@@ -23,7 +23,7 @@ clap = { version = "4.5.60", features = ["derive"] }
 x509-parser = {version = "0.18.1", features = ["default"]}
 chrono = {version = "0.4.44", features = ["serde"]}
 mproxy_common = { path = "crates/mproxy_common" }
-pingora = { version = "0.8.0", features = ["proxy", "cache", "openssl"] }
+pingora = { version = "0.8.0", features = ["proxy", "cache", "openssl", "connection_filter"] }
 toml = { version = "0.9.12", features = ["serde"]}
 reqwest = {version = "0.12.28", features = ["h2", "json"]}
 openssl = { version = "*", features = ["vendored"] }

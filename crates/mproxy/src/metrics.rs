@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 use prometheus::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramOpts, Opts, Registry};
+use tracing::debug;
 
 pub struct ProxyMetrics {
     pub registry: Registry,
@@ -9,7 +10,6 @@ pub struct ProxyMetrics {
     pub bytes_in: Counter,
     pub bytes_out: Counter,
     pub request_duration: Histogram,
-    pub active_connections: Gauge,
     pub build_info: GaugeVec,
     pub uptime_seconds: Counter,
 }
@@ -48,11 +48,6 @@ impl ProxyMetrics {
                 .buckets(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
         ).unwrap();
 
-        let active_connections = Gauge::new(
-            "mproxy_active_connections",
-            "Current number of active connections",
-        ).unwrap();
-
         let build_info = GaugeVec::new(
             Opts::new("mproxy_build_info", "Build information"),
             &["version", "build_date", "profile"],
@@ -69,7 +64,6 @@ impl ProxyMetrics {
         registry.register(Box::new(bytes_in.clone())).unwrap();
         registry.register(Box::new(bytes_out.clone())).unwrap();
         registry.register(Box::new(request_duration.clone())).unwrap();
-        registry.register(Box::new(active_connections.clone())).unwrap();
         registry.register(Box::new(build_info.clone())).unwrap();
         registry.register(Box::new(uptime_seconds.clone())).unwrap();
 
@@ -81,7 +75,6 @@ impl ProxyMetrics {
             bytes_in,
             bytes_out,
             request_duration,
-            active_connections,
             build_info,
             uptime_seconds,
         }
@@ -100,14 +93,6 @@ impl ProxyMetrics {
         self.request_duration.observe(duration_secs);
         self.bytes_in.inc_by(bytes_in as f64);
         self.bytes_out.inc_by(bytes_out as f64);
-    }
-
-    pub fn increment_active_connections(&self) {
-        self.active_connections.inc();
-    }
-
-    pub fn decrement_active_connections(&self) {
-        self.active_connections.dec();
     }
 
     pub fn increment_uptime(&self, seconds: u64) {

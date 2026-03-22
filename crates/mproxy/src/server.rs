@@ -9,7 +9,7 @@ pub mod server {
     use pingora::ErrorSource::Upstream;
     use pingora::http::{ResponseHeader, StatusCode};
     use pingora::listeners::tls::TlsSettings;
-    use pingora::listeners::{ALPN, TcpSocketOptions};
+    use pingora::listeners::{ALPN, TcpSocketOptions, ConnectionFilter};
     use pingora::modules::http::HttpModules;
     use pingora::modules::http::compression::ResponseCompressionBuilder;
     use pingora::prelude::*;
@@ -20,8 +20,27 @@ pub mod server {
     use std::fmt::Debug;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::net::SocketAddr;
     use std::time::Duration;
     use tracing::{error, info};
+
+    // TcpConnectionTracker logs TCP connection accepts, but note that Pingora doesn't
+    // provide a connection-close callback, so this counter never decrements.
+    static TCP_CONNECTION_COUNT: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Debug)]
+    struct TcpConnectionTracker;
+
+    #[async_trait]
+    impl ConnectionFilter for TcpConnectionTracker {
+        async fn should_accept(&self, _addr: Option<&SocketAddr>) -> bool {
+            TCP_CONNECTION_COUNT.fetch_add(1, Ordering::Relaxed);
+            info!("TCP connection accepted, count: {}", TCP_CONNECTION_COUNT.load(Ordering::Relaxed));
+            true
+        }
+    }
 
     #[derive(Clone, Debug)]
     pub struct TlsProxyApp {}
@@ -34,7 +53,6 @@ pub mod server {
         pub request_start: std::time::Instant,
         pub request_size: u64,
         pub response_size: u64,
-        pub tracked_connection: bool,
     }
 
     #[async_trait]
@@ -49,7 +67,6 @@ pub mod server {
                 request_start: std::time::Instant::now(),
                 request_size: 0,
                 response_size: 0,
-                tracked_connection: false,
             }
         }
 
@@ -104,19 +121,6 @@ pub mod server {
             }
         }
 
-        async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
-        where
-            Self::CTX: Send + Sync,
-        {
-            session.set_keepalive(Some(120));
-            if ctx.server_name.is_none() {
-                error!("No host specified!");
-                let _ = session.respond_error(502).await;
-                return Ok(true);
-            }
-            Ok(false)
-        }
-
         async fn early_request_filter(
             &self,
             session: &mut Session,
@@ -135,9 +139,20 @@ pub mod server {
             ctx.request_start = std::time::Instant::now();
             ctx.request_size = 0;
             ctx.response_size = 0;
-            ctx.tracked_connection = true;
-            METRICS.increment_active_connections();
             Ok(())
+        }
+
+        async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
+        where
+            Self::CTX: Send + Sync,
+        {
+            session.set_keepalive(Some(120));
+            if ctx.server_name.is_none() {
+                error!("No host specified!");
+                let _ = session.respond_error(502).await;
+                return Ok(true);
+            }
+            Ok(false)
         }
 
         async fn upstream_request_filter(
@@ -184,6 +199,38 @@ pub mod server {
             Ok(())
         }
 
+        async fn request_body_filter(
+            &self,
+            _session: &mut Session,
+            body: &mut Option<bytes::Bytes>,
+            _end_of_stream: bool,
+            ctx: &mut Self::CTX,
+        ) -> Result<()>
+        where
+            Self::CTX: Send + Sync,
+        {
+            if let Some(data) = body {
+                ctx.request_size += data.len() as u64;
+            }
+            Ok(())
+        }
+
+        fn response_body_filter(
+            &self,
+            _session: &mut Session,
+            body: &mut Option<bytes::Bytes>,
+            _end_of_stream: bool,
+            ctx: &mut Self::CTX,
+        ) -> Result<std::option::Option<std::time::Duration>>
+        where
+            Self::CTX: Send + Sync,
+        {
+            if let Some(data) = body {
+                ctx.response_size += data.len() as u64;
+            }
+            Ok(None)
+        }
+
         async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {
             let response_code = session
                 .response_written()
@@ -191,9 +238,6 @@ pub mod server {
             let duration = _ctx.request_start.elapsed().as_secs_f64();
             let host = _ctx.server_name.as_deref().unwrap_or("unknown");
             METRICS.record_request(response_code, host, duration, _ctx.request_size, _ctx.response_size);
-            if _ctx.tracked_connection {
-                METRICS.decrement_active_connections();
-            }
             let log_msg = format!(
                 "[{}] [{}] [{}] - [{}{}]",
                 _ctx.client_ip,
@@ -245,7 +289,6 @@ pub mod server {
                 request_start: std::time::Instant::now(),
                 request_size: 0,
                 response_size: 0,
-                tracked_connection: false,
             }
         }
 
@@ -256,6 +299,20 @@ pub mod server {
         ) -> Result<Box<HttpPeer>> {
             info!("PEER");
             todo!()
+        }
+
+        async fn early_request_filter(
+            &self,
+            _session: &mut Session,
+            ctx: &mut Self::CTX,
+        ) -> Result<()>
+        where
+            Self::CTX: Send + Sync,
+        {
+            ctx.request_start = std::time::Instant::now();
+            ctx.request_size = 0;
+            ctx.response_size = 0;
+            Ok(())
         }
 
         async fn request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<bool>
@@ -320,6 +377,38 @@ pub mod server {
             }
         }
 
+        async fn request_body_filter(
+            &self,
+            _session: &mut Session,
+            body: &mut Option<bytes::Bytes>,
+            _end_of_stream: bool,
+            ctx: &mut Self::CTX,
+        ) -> Result<()>
+        where
+            Self::CTX: Send + Sync,
+        {
+            if let Some(data) = body {
+                ctx.request_size += data.len() as u64;
+            }
+            Ok(())
+        }
+
+        fn response_body_filter(
+            &self,
+            _session: &mut Session,
+            body: &mut Option<bytes::Bytes>,
+            _end_of_stream: bool,
+            ctx: &mut Self::CTX,
+        ) -> Result<std::option::Option<std::time::Duration>>
+        where
+            Self::CTX: Send + Sync,
+        {
+            if let Some(data) = body {
+                ctx.response_size += data.len() as u64;
+            }
+            Ok(None)
+        }
+
         async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX)
         where
             Self::CTX: Send + Sync,
@@ -330,9 +419,6 @@ pub mod server {
             let duration = _ctx.request_start.elapsed().as_secs_f64();
             let host = _ctx.server_name.as_deref().unwrap_or("unknown");
             METRICS.record_request(response_code, host, duration, _ctx.request_size, _ctx.response_size);
-            if _ctx.tracked_connection {
-                METRICS.decrement_active_connections();
-            }
             let log_msg = format!(
                 "[{}] [{}] [{}] - [{}{}]",
                 _ctx.client_ip,
@@ -369,6 +455,7 @@ pub mod server {
             let http_proxy_app = SimpleHttpProxy::new();
             let mut http_proxy = http_proxy_service(&pingora_server.configuration, http_proxy_app);
             http_proxy.add_tcp(format!("0.0.0.0:{}", http_port).as_str());
+            http_proxy.set_connection_filter(Arc::new(TcpConnectionTracker));
             pingora_server.add_service(http_proxy);
         } else {
             info!("No or Invalid HTTP Port Set - HTTP Disabled!");
@@ -411,6 +498,7 @@ pub mod server {
                 Some(sock_opt),
                 tls_settings,
             );
+            proxy.set_connection_filter(Arc::new(TcpConnectionTracker));
 
             pingora_server.add_service(proxy);
         } else {
@@ -430,6 +518,7 @@ pub mod server {
             let s3_proxy_app = S3Proxy::new();
             let mut s3_proxy = http_proxy_service(&pingora_server.configuration, s3_proxy_app);
             s3_proxy.add_tcp(format!("0.0.0.0:{}", s3_port).as_str());
+            s3_proxy.set_connection_filter(Arc::new(TcpConnectionTracker));
             pingora_server.add_service(s3_proxy);
         }
 
