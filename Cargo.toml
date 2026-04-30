@@ -30,6 +30,7 @@ openssl = { version = "*", features = ["vendored"] }
 jemallocator = "0.3"
 
 
+
 [workspace.lints.clippy]
 style = { level = "allow", priority = -1 }
 too_many_arguments = "allow"

@@ -6,7 +6,6 @@ use std::fs;
 use std::path::PathBuf;
 use chrono::{ Utc};
 use time::OffsetDateTime;
-use tracing::info;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::{parse_x509_certificate};
 use x509_parser::pem::parse_x509_pem;
