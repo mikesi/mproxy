@@ -328,3 +328,37 @@ pub fn find_certificate(domain: String) -> Option<Certificate> {
   }
   None
 }
+
+pub fn list_all_certs(_staging: bool){
+  let base_path = PathBuf::from(cert_path());
+  if base_path.exists(){
+    for entry in fs::read_dir(&base_path).unwrap() {
+      let entry = entry.unwrap();
+      let path = entry.path();
+      if path.is_dir() {
+        let cert_path = path.join("cert.json");
+        if cert_path.exists() {
+          let cert = Certificate::from_path(cert_path);
+          println!("=== Certificate for {} --- Expire: {} ===\n", cert.get_host_name(),cert.get_valid_until_date_time().unwrap().to_rfc3339());
+          println!("--- Hostname ---");
+          println!("{}", cert.get_host_name());
+          println!();
+
+          if let Some(host_names) = &cert.host_names {
+            println!("--- Additional Hosts ---");
+            for host in host_names {
+              println!("{}", host);
+            }
+            println!();
+          }
+
+          println!("--- Expire At ---");
+          println!("{}", cert.get_valid_until_date_time().unwrap().to_rfc3339());
+          println!();
+        }
+      }
+    }
+  } else {
+    error!("Certificate store does not exist: {}",cert_path());
+  }
+}

@@ -26,6 +26,11 @@ enum Commands {
     #[arg(short = 'i', long = "input-dir", required = true)]
     input_dir: String,
   },
+  /// List All Certificates in the store with their details.
+  ListAll {
+    #[arg(short = 's', long = "staging", required = false,default_value_t = false)]
+    staging: bool
+  },
   /// Request New Certificate from Let's Encrypt
   CertNew {
     #[arg(short = 'e', long = "email", required = true)]
@@ -95,10 +100,13 @@ async fn main() {
     Commands::CertAutoRenew { staging } => {
       letsencrypt::renew_certs_in_store(*staging);
     },
+    Commands::ListAll { staging } => {
+      letsencrypt::list_all_certs(*staging);
+    }
     Commands::CertFind { domain } => {
       let cert = letsencrypt::find_certificate(domain.into());
       if let Some(cert) = cert {
-        println!("Certificate found for domain: {}", domain);
+        println!("Certificate found for domain: {} --- Expire: {}", domain,cert.get_valid_until_date_time().unwrap().to_rfc3339());
         println!("Aliases: {:?}",cert.host_names);
         println!("\nCert: {:?}",cert.certificate_pem);
         println!("\nFull Chain: {:?}",cert.full_chain);
