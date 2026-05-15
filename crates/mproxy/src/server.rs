@@ -6,6 +6,8 @@ pub mod server {
     use async_trait::async_trait;
     use bytes::Bytes;
     use mproxy_common::acme_challenge_path;
+    use mproxy_common::config::Config;
+    use mproxy_common::ip_blacklist::IpBlacklist;
     use pingora::ErrorSource::Upstream;
     use pingora::http::{ResponseHeader, StatusCode};
     use pingora::listeners::tls::TlsSettings;
@@ -19,10 +21,11 @@ pub mod server {
     use pingora::upstreams::peer::PeerOptions;
     use std::fmt::Debug;
     use std::fs;
+    use std::net::IpAddr;
     use std::path::PathBuf;
+    use std::net::SocketAddr;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
-    use std::net::SocketAddr;
     use std::time::Duration;
     use tracing::{error, info};
 
@@ -42,8 +45,40 @@ pub mod server {
         }
     }
 
+    fn extract_client_ip(session: &Session) -> Option<IpAddr> {
+        session
+            .client_addr()
+            .and_then(|addr| addr.as_inet().map(|inet| inet.ip()))
+    }
+
+    fn blacklist_match(
+        global_blacklist: &Option<IpBlacklist>,
+        cert_store: &CertStore,
+        host_name: &str,
+        client_ip: IpAddr,
+    ) -> Option<&'static str> {
+        if global_blacklist
+            .as_ref()
+            .is_some_and(|blacklist| blacklist.contains(client_ip))
+        {
+            return Some("global");
+        }
+
+        if let Some(cert) = cert_store.get_cert(host_name)
+            && let Some(host_config) = cert.host_config
+            && let Some(host_blacklist) = host_config.blacklisted_ips
+            && host_blacklist.contains(client_ip)
+        {
+            return Some("per_host");
+        }
+
+        None
+    }
+
     #[derive(Clone, Debug)]
-    pub struct TlsProxyApp {}
+    pub struct TlsProxyApp {
+        pub global_blacklist: Option<IpBlacklist>,
+    }
 
     #[derive(Debug)]
     pub struct HttpCtx {
@@ -139,6 +174,30 @@ pub mod server {
             ctx.request_start = std::time::Instant::now();
             ctx.request_size = 0;
             ctx.response_size = 0;
+
+            if let Some(client_ip) = extract_client_ip(session) {
+                ctx.client_ip = client_ip.to_string();
+                if let Some(blacklist_type) = blacklist_match(
+                    &self.global_blacklist,
+                    &ctx.cert_store,
+                    ctx.server_name.as_ref().unwrap(),
+                    client_ip,
+                ) {
+                    METRICS.record_blacklist_block(
+                        ctx.server_name.as_deref().unwrap_or("unknown"),
+                        blacklist_type,
+                    );
+                    info!(
+                        "Blocked request from {} for host {} by {} blacklist",
+                        client_ip,
+                        ctx.server_name.as_deref().unwrap_or("unknown"),
+                        blacklist_type
+                    );
+                    session.respond_error(403).await?;
+                    return Ok(());
+                }
+            }
+
             Ok(())
         }
 
@@ -259,11 +318,13 @@ pub mod server {
     }
 
     #[derive(Clone, Debug)]
-    struct SimpleHttpProxy {}
+    struct SimpleHttpProxy {
+        global_blacklist: Option<IpBlacklist>,
+    }
 
     impl SimpleHttpProxy {
-        pub fn new() -> Self {
-            SimpleHttpProxy {}
+        pub fn new(global_blacklist: Option<IpBlacklist>) -> Self {
+            SimpleHttpProxy { global_blacklist }
         }
 
         pub fn get_host(session: &Session) -> Option<&str> {
@@ -355,6 +416,27 @@ pub mod server {
             }
             if let Some(host_name) = SimpleHttpProxy::get_host(session) {
                 _ctx.server_name = Some(host_name.to_string().clone());
+
+                if let Some(client_ip) = extract_client_ip(session) {
+                    _ctx.client_ip = client_ip.to_string();
+                    if let Some(blacklist_type) = blacklist_match(
+                        &self.global_blacklist,
+                        &_ctx.cert_store,
+                        host_name,
+                        client_ip,
+                    ) {
+                        METRICS.record_blacklist_block(host_name, blacklist_type);
+                        info!(
+                            "Blocked HTTP request from {} for host {} by {} blacklist",
+                            client_ip,
+                            host_name,
+                            blacklist_type
+                        );
+                        session.respond_error(403).await?;
+                        return Ok(true);
+                    }
+                }
+
                 // Redirect to HTTPS all other requests
                 let mut redirect_response_header =
                     ResponseHeader::build(StatusCode::TEMPORARY_REDIRECT, None)?;
@@ -438,6 +520,8 @@ pub mod server {
 
     //noinspection DuplicatedCode
     pub fn start_server() {
+        let global_blacklist = Config::new().global_blacklist;
+
         let mut pingora_server = Server::new(Opt::default()).unwrap();
         let mut conf = ServerConf::default();
         conf.upstream_keepalive_pool_size = 4096;
@@ -452,7 +536,7 @@ pub mod server {
             .unwrap();
         if http_port > 0 {
             info!("HTTP Enabled - Port: [{}]", &http_port);
-            let http_proxy_app = SimpleHttpProxy::new();
+            let http_proxy_app = SimpleHttpProxy::new(global_blacklist.clone());
             let mut http_proxy = http_proxy_service(&pingora_server.configuration, http_proxy_app);
             http_proxy.add_tcp(format!("0.0.0.0:{}", http_port).as_str());
             http_proxy.set_connection_filter(Arc::new(TcpConnectionTracker));
@@ -467,7 +551,9 @@ pub mod server {
             .unwrap();
         if https_port > 0 {
             info!("HTTPS Enabled - Port: [{}]", https_port);
-            let tls_proxy_app = TlsProxyApp {};
+            let tls_proxy_app = TlsProxyApp {
+                global_blacklist: global_blacklist.clone(),
+            };
             let cert_handler = CertHandler::new();
 
             let mut proxy = http_proxy_service(&pingora_server.configuration, tls_proxy_app);

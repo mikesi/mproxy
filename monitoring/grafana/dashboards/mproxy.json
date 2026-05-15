@@ -323,6 +323,56 @@
         { "id": "labelsToFields", "options": {} },
         { "id": "filterFieldsByName", "options": { "include": { "names": ["version", "build_date", "profile"] } } }
       ]
+    },
+    {
+      "id": 13,
+      "title": "Blacklist Blocks (5m)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        {
+          "expr": "sum(increase(mproxy_blacklist_blocked_total{instance=~\"$instance\"}[5m]))",
+          "legendFormat": "5m blocked"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Blacklist Block Rate by Type",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 16, "x": 8, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (blacklist_type) (rate(mproxy_blacklist_blocked_total{instance=~\"$instance\"}[5m]))",
+          "legendFormat": "{{ blacklist_type }}"
+        }
+      ]
     }
   ],
   "__inputs": [

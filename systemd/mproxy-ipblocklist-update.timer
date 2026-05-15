@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh mproxy inbound IP blocklist every 2 hours
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=2h
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

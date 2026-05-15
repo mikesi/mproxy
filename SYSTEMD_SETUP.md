@@ -9,6 +9,13 @@ sudo ./install-systemd.sh
 sudo systemctl enable --now mproxy
 ```
 
+To also install and enable nftables inbound blocklist automation:
+
+```bash
+sudo ./install-systemd.sh --with-inbound-blocklist
+sudo systemctl enable --now mproxy
+```
+
 ### Verify Installation
 
 ```bash
@@ -32,6 +39,42 @@ After configuration changes:
 
 ```bash
 sudo systemctl restart mproxy
+```
+
+## Inbound IP Blocklist Automation (nftables)
+
+Inbound blocklist automation is optional and is installed only when using `--with-inbound-blocklist`.
+It loads the inbound list into nftables sets and drops matching sources before requests reach mproxy.
+
+Installed units:
+- `mproxy-ipblocklist-update.service`
+- `mproxy-ipblocklist-update.timer` (runs every 2 hours)
+
+Useful commands:
+
+```bash
+# Run one update now
+sudo systemctl start mproxy-ipblocklist-update.service
+
+# Clear inbound blocklist entries (keeps nftables rules/sets)
+sudo /usr/local/sbin/clear-inbound-blocklist.sh
+
+# Check timer status
+systemctl status mproxy-ipblocklist-update.timer
+
+# View updater logs
+journalctl -u mproxy-ipblocklist-update.service -n 100 --no-pager
+```
+
+Related environment variables in `/etc/mproxy/mproxy.env`:
+
+```bash
+MPROXY_INBOUND_BLOCKLIST_URL=https://raw.githubusercontent.com/bitwire-it/ipblocklist/main/inbound.txt
+MPROXY_NFT_FAMILY=inet
+MPROXY_NFT_TABLE=mproxy
+MPROXY_NFT_CHAIN=input
+MPROXY_NFT_SET_V4=inbound_v4
+MPROXY_NFT_SET_V6=inbound_v6
 ```
 
 ## RPM Installation

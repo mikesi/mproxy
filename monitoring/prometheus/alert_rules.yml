@@ -31,6 +31,16 @@ groups:
           summary: "High p95 latency on {{ $labels.instance }}"
           description: "p95 request latency is {{ $value }}s"
 
+      - alert: HighBlacklistBlockRate
+        expr: |
+          sum by (instance) (rate(mproxy_blacklist_blocked_total[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High blacklist block rate on {{ $labels.instance }}"
+          description: "Blacklist is blocking {{ $value }} requests/sec over 5m"
+
 
       - alert: HighMemoryUsage
         expr: |

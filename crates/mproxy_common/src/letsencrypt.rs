@@ -300,7 +300,7 @@ pub fn renew_certs_in_store(staging: bool){
               if host_config.host_name.eq(&cert.get_host_name()) {
                 error!("Certificate is EXPIRED!");
                 error!("Domain: [{}]",&cert.get_host_name());
-                letsencrypt::renew_certificate(&cert.get_host_name(),&std::env::var("MPROXY_LETSENCRYPT_EMAIL").unwrap(),staging);
+                renew_certificate(&cert.get_host_name(),&std::env::var("MPROXY_LETSENCRYPT_EMAIL").unwrap(),staging);
               }
             });
           } else if expire_date < exp_10days {
@@ -308,7 +308,7 @@ pub fn renew_certs_in_store(staging: bool){
               if host_config.host_name.eq(&cert.get_host_name()) {
                 info!("Certificate is expiring soon, renewing...: {}",cert);
                 info!("Found in Host Config ... Try Renew");
-                letsencrypt::renew_certificate(&cert.get_host_name(),&std::env::var("MPROXY_LETSENCRYPT_EMAIL").unwrap(),staging);
+                renew_certificate(&cert.get_host_name(),&std::env::var("MPROXY_LETSENCRYPT_EMAIL").unwrap(),staging);
               }
             });
           }

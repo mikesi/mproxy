@@ -1,14 +1,37 @@
 use crate::data_path;
+use crate::ip_blacklist::IpBlacklist;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::env;
 use std::sync::Mutex;
+use tracing::warn;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HostConfig {
     pub host_name: String,
     pub aliases: Option<Vec<String>>,
     pub upstream_address: String,
+    #[serde(default, deserialize_with = "deserialize_optional_ip_blacklist")]
+    pub blacklisted_ips: Option<IpBlacklist>,
+}
+
+fn deserialize_optional_ip_blacklist<'de, D>(deserializer: D) -> Result<Option<IpBlacklist>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<String>::deserialize(deserializer)?;
+    match raw {
+        None => Ok(None),
+        Some(value) if value.trim().is_empty() => Ok(None),
+        Some(value) => match IpBlacklist::from_string(value.as_str()) {
+            Ok(list) if !list.is_empty() => Ok(Some(list)),
+            Ok(_) => Ok(None),
+            Err(err) => {
+                warn!("Invalid per-host blacklisted_ips value: {}", err);
+                Ok(None)
+            }
+        },
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

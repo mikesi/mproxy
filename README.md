@@ -71,6 +71,7 @@ To run `mproxy`, you need to create a configuration file and a directory for cer
 host_name = "example.com"
 aliases = ["www.example.com"]
 upstream_address = "127.0.0.1:8080"
+blacklisted_ips = "203.0.113.7,10.10.0.0/16"
 
 [[host_configs]]
 host_name = "another-example.com"
@@ -83,6 +84,17 @@ You also need to set the following environment variables:
 - `MPROXY_HTTPS_PORT`: The port to listen on for HTTPS traffic (e.g., 443).
 - `MPROXY_HOSTS_CONFIG_PATH`: The path to the hosts configuration file (e.g., `/etc/mproxy/hosts.toml`).
 - `MPROXY_CERT_PATH`: The path to the directory where certificates are stored (e.g., `/etc/mproxy/certs`).
+- `MPROXY_GLOBAL_BLACKLIST_IPS`: Optional comma-separated list of blocked client IPs and CIDR ranges (e.g., `192.168.1.10,10.0.0.0/24`).
+
+### IP Blacklisting
+
+mproxy supports client IP blacklisting at two levels:
+
+- Global blacklist: configured through `MPROXY_GLOBAL_BLACKLIST_IPS`
+- Per-host blacklist: configured via `blacklisted_ips` in each `[[host_configs]]` entry
+
+Both levels accept a comma-separated mix of individual IPs and CIDR ranges.
+When a request matches either blacklist, mproxy returns `403 Forbidden`.
 
 These variables can be placed in a `.env` file or in the systemd environment file at `/etc/mproxy/mproxy.env`.
 

@@ -5,6 +5,40 @@
 
 set -e
 
+INSTALL_INBOUND_BLOCKLIST=0
+
+usage() {
+    cat <<EOF
+Usage: sudo ./install-systemd.sh [options]
+
+Options:
+  --with-inbound-blocklist     Install and enable nftables inbound blocklist updater
+  --without-inbound-blocklist  Do not install inbound blocklist updater (default)
+  -h, --help                   Show this help message
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --with-inbound-blocklist)
+            INSTALL_INBOUND_BLOCKLIST=1
+            ;;
+        --without-inbound-blocklist)
+            INSTALL_INBOUND_BLOCKLIST=0
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
     echo "Please run as root or with sudo"
@@ -57,12 +91,40 @@ cp systemd/mproxy-cert-renew.timer /etc/systemd/system/
 chmod 644 /etc/systemd/system/mproxy-cert-renew.service
 chmod 644 /etc/systemd/system/mproxy-cert-renew.timer
 
+if [ "$INSTALL_INBOUND_BLOCKLIST" -eq 1 ]; then
+    echo "Installing inbound ip blocklist updater script..."
+    cp update-inbound-blocklist.sh /usr/local/sbin/update-inbound-blocklist.sh
+    chmod 755 /usr/local/sbin/update-inbound-blocklist.sh
+
+    echo "Installing inbound ip blocklist clear script..."
+    cp clear-inbound-blocklist.sh /usr/local/sbin/clear-inbound-blocklist.sh
+    chmod 755 /usr/local/sbin/clear-inbound-blocklist.sh
+
+    echo "Installing inbound ip blocklist updater systemd units..."
+    cp systemd/mproxy-ipblocklist-update.service /etc/systemd/system/
+    cp systemd/mproxy-ipblocklist-update.timer /etc/systemd/system/
+    chmod 644 /etc/systemd/system/mproxy-ipblocklist-update.service
+    chmod 644 /etc/systemd/system/mproxy-ipblocklist-update.timer
+else
+    echo "Skipping inbound ip blocklist installation (default). Use --with-inbound-blocklist to enable it."
+fi
+
 # Reload systemd
 echo "Reloading systemd daemon..."
 systemctl daemon-reload
 
 echo "Enabling certificate renewal timer..."
 systemctl enable --now mproxy-cert-renew.timer
+
+if [ "$INSTALL_INBOUND_BLOCKLIST" -eq 1 ]; then
+    echo "Running initial inbound ip blocklist update..."
+    if ! /usr/local/sbin/update-inbound-blocklist.sh; then
+        echo "Warning: initial inbound blocklist update failed. Check network, nftables, and mproxy.env settings."
+    fi
+
+    echo "Enabling inbound ip blocklist update timer..."
+    systemctl enable --now mproxy-ipblocklist-update.timer
+fi
 
 echo ""
 echo "Installation complete!"

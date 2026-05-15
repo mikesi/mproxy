@@ -1,12 +1,12 @@
 use std::sync::LazyLock;
-use prometheus::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramOpts, Opts, Registry};
-use tracing::debug;
+use prometheus::{Counter, CounterVec, GaugeVec, Histogram, HistogramOpts, Opts, Registry};
 
 pub struct ProxyMetrics {
     pub registry: Registry,
     pub total_requests: Counter,
     pub requests_by_status: CounterVec,
     pub requests_by_host: CounterVec,
+    pub blacklist_blocked_total: CounterVec,
     pub bytes_in: Counter,
     pub bytes_out: Counter,
     pub request_duration: Histogram,
@@ -31,6 +31,11 @@ impl ProxyMetrics {
         let requests_by_host = CounterVec::new(
             Opts::new("mproxy_requests_by_host", "Requests by host"),
             &["host"],
+        ).unwrap();
+
+        let blacklist_blocked_total = CounterVec::new(
+            Opts::new("mproxy_blacklist_blocked_total", "Blocked requests due to IP blacklist"),
+            &["host", "blacklist_type"],
         ).unwrap();
 
         let bytes_in = Counter::new(
@@ -61,6 +66,7 @@ impl ProxyMetrics {
         registry.register(Box::new(total_requests.clone())).unwrap();
         registry.register(Box::new(requests_by_status.clone())).unwrap();
         registry.register(Box::new(requests_by_host.clone())).unwrap();
+        registry.register(Box::new(blacklist_blocked_total.clone())).unwrap();
         registry.register(Box::new(bytes_in.clone())).unwrap();
         registry.register(Box::new(bytes_out.clone())).unwrap();
         registry.register(Box::new(request_duration.clone())).unwrap();
@@ -72,6 +78,7 @@ impl ProxyMetrics {
             total_requests,
             requests_by_status,
             requests_by_host,
+            blacklist_blocked_total,
             bytes_in,
             bytes_out,
             request_duration,
@@ -97,6 +104,12 @@ impl ProxyMetrics {
 
     pub fn increment_uptime(&self, seconds: u64) {
         self.uptime_seconds.inc_by(seconds as f64);
+    }
+
+    pub fn record_blacklist_block(&self, host: &str, blacklist_type: &str) {
+        self.blacklist_blocked_total
+            .with_label_values(&[host, blacklist_type])
+            .inc();
     }
 
 }

@@ -6,19 +6,16 @@ use std::path::PathBuf;
 use mproxy_common::certificates::Certificate;
 use mproxy_common::host_config::{HostConfig, HostConfigList, HostsConfigLoader};
 
-// This is a Global Certificate Map that is used by the CertHandler
+// This is a Global Certificate Map used by the CertHandler
 static CERT_MAP: LazyLock<Mutex<HashMap<String, Option<Certificate>>>> = LazyLock::new(|| {
-  info!("CERT_MAP Init");
   Mutex::new(HashMap::new())
 });
-
 
 
 #[derive(Debug)]
 pub struct CertStore {
   host_config_loader: Option<HostsConfigLoader>,
 }
-
 
 // Manage the Certificates
 impl CertStore {
@@ -115,6 +112,7 @@ mod tests {
             host_name: host_name.to_string(),
             aliases: Some(vec![format!("www.{}", host_name)]),
             upstream_address: upstream.to_string(),
+            blacklisted_ips: None,
         }
     }
 

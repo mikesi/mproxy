@@ -2,6 +2,7 @@ pub mod config;
 pub mod letsencrypt;
 pub mod certificates;
 pub mod host_config;
+pub mod ip_blacklist;
 
 pub fn data_path() -> String {
     std::env::var("MPROXY_DATA_PATH").expect("MPROXY_DATA_PATH must be set")

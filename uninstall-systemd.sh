@@ -13,6 +13,22 @@ fi
 
 echo "Uninstalling MProxy systemd service..."
 
+# Stop/disable ip blocklist timer if present
+if systemctl is-active --quiet mproxy-ipblocklist-update.timer 2>/dev/null; then
+    echo "Stopping mproxy-ipblocklist-update timer..."
+    systemctl stop mproxy-ipblocklist-update.timer
+fi
+
+if systemctl is-enabled --quiet mproxy-ipblocklist-update.timer 2>/dev/null; then
+    echo "Disabling mproxy-ipblocklist-update timer..."
+    systemctl disable mproxy-ipblocklist-update.timer
+fi
+
+if systemctl is-active --quiet mproxy-ipblocklist-update.service 2>/dev/null; then
+    echo "Stopping mproxy-ipblocklist-update service..."
+    systemctl stop mproxy-ipblocklist-update.service
+fi
+
 # Stop/disable cert renew timer if present
 if systemctl is-active --quiet mproxy-cert-renew.timer 2>/dev/null; then
     echo "Stopping mproxy-cert-renew timer..."
@@ -58,10 +74,30 @@ if [ -f /etc/systemd/system/mproxy-cert-renew.service ]; then
     rm /etc/systemd/system/mproxy-cert-renew.service
 fi
 
+if [ -f /etc/systemd/system/mproxy-ipblocklist-update.timer ]; then
+    echo "Removing mproxy-ipblocklist-update timer file..."
+    rm /etc/systemd/system/mproxy-ipblocklist-update.timer
+fi
+
+if [ -f /etc/systemd/system/mproxy-ipblocklist-update.service ]; then
+    echo "Removing mproxy-ipblocklist-update service file..."
+    rm /etc/systemd/system/mproxy-ipblocklist-update.service
+fi
+
 # Remove installed certificate renewal script
 if [ -f /usr/local/sbin/renew-certs-and-restart-mproxy.sh ]; then
     echo "Removing certificate renewal script..."
     rm /usr/local/sbin/renew-certs-and-restart-mproxy.sh
+fi
+
+if [ -f /usr/local/sbin/update-inbound-blocklist.sh ]; then
+    echo "Removing inbound ip blocklist updater script..."
+    rm /usr/local/sbin/update-inbound-blocklist.sh
+fi
+
+if [ -f /usr/local/sbin/clear-inbound-blocklist.sh ]; then
+    echo "Removing inbound ip blocklist clear script..."
+    rm /usr/local/sbin/clear-inbound-blocklist.sh
 fi
 
 # Reload systemd
