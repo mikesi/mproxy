@@ -18,6 +18,7 @@ mod s3_proxy;
 mod metrics;
 mod metrics_endpoint;
 mod admin_endpoints;
+mod tcp_forwarder;
 
 extern crate jemallocator;
 
@@ -81,6 +82,12 @@ async fn main() {
     let config_loader = HostsConfigLoader::new();
     let config = config_loader.load();
     info!("Host config list: {:#?}", config);
+
+    let tcp_configs = config.host_configs.clone();
+    let tcp_handle = tokio::spawn(async move {
+        tcp_forwarder::start_tcp_forwarders(&tcp_configs).await;
+    });
+    join_handles.push(tcp_handle);
 
     let mut cert_store = CertStore::new();
     cert_store.load_certs_from_host_config_list(&config_loader.load());

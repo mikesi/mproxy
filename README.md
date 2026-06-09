@@ -13,6 +13,7 @@ mproxy is designed to be a simple and efficient solution for terminating TLS tra
 - [Architecture](#architecture)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
+- [TCP Port Forwarding](#tcp-port-forwarding)
 - [Certificate Management](#certificate-management)
 - [Systemd Service](#systemd-service)
 - [RPM Packages](#rpm-packages)
@@ -30,6 +31,7 @@ mproxy is designed to be a simple and efficient solution for terminating TLS tra
 - **RPM Packaging**: The project includes scripts for building RPM packages for easy deployment on RPM-based systems.
 - **High Performance**: Built on `tokio` and `pingora`, mproxy is designed to be fast and efficient.
 - **Automatic Compression**: Response compression is enabled by default for improved bandwidth efficiency.
+- **TCP Port Forwarding**: Forward raw TCP connections to upstream services, configured per-host in `hosts.toml`.
 
 ## Architecture
 
@@ -67,6 +69,7 @@ To run `mproxy`, you need to create a configuration file and a directory for cer
 **Example `hosts.toml`:**
 
 ```toml
+# HTTP/HTTPS reverse proxy (default mode)
 [[host_configs]]
 host_name = "example.com"
 aliases = ["www.example.com"]
@@ -76,7 +79,29 @@ blacklisted_ips = "203.0.113.7,10.10.0.0/16"
 [[host_configs]]
 host_name = "another-example.com"
 upstream_address = "10.0.1.112:3000"
+
+# TCP-only forwarding (no TLS cert loaded)
+[[host_configs]]
+host_name = "mysql-relay"
+upstream_address = "127.0.0.1:3306"
+mode = "tcp"
+tcp_forward_port = 13306
+
+# Both HTTP proxy and TCP forwarding
+[[host_configs]]
+host_name = "app.example.com"
+upstream_address = "127.0.0.1:9000"
+mode = "both"
+tcp_forward_port = 19000
 ```
+
+Each host entry supports an optional `mode` field:
+
+| Mode | Description |
+|------|-------------|
+| `"http"` (default) | TLS termination and HTTP reverse proxy. Certificate is loaded. |
+| `"tcp"` | Raw TCP forwarding only. No certificate is loaded. |
+| `"both"` | HTTP reverse proxy **and** TCP forwarding. Certificate is loaded. |
 
 You also need to set the following environment variables:
 
@@ -97,6 +122,75 @@ Both levels accept a comma-separated mix of individual IPs and CIDR ranges.
 When a request matches either blacklist, mproxy returns `403 Forbidden`.
 
 These variables can be placed in a `.env` file or in the systemd environment file at `/etc/mproxy/mproxy.env`.
+
+## TCP Port Forwarding
+
+mproxy can act as a raw TCP relay, forwarding connections from a local listen port to an upstream address. This is useful for exposing internal services (databases, message brokers, etc.) without TLS termination.
+
+### Configuration
+
+Set `mode = "tcp"` (or `"both"`) and specify `tcp_forward_port` on a host entry:
+
+```toml
+[[host_configs]]
+host_name = "mysql-relay"
+upstream_address = "127.0.0.1:3306"
+mode = "tcp"
+tcp_forward_port = 13306
+```
+
+With this configuration, mproxy listens on port `13306` and forwards all TCP traffic to `127.0.0.1:3306`.
+
+### Examples
+
+**Forward a MySQL database:**
+
+```toml
+[[host_configs]]
+host_name = "mysql-relay"
+upstream_address = "10.0.1.50:3306"
+mode = "tcp"
+tcp_forward_port = 13306
+```
+
+Connect with: `mysql -h 127.0.0.1 -P 13306 -u myuser -p`
+
+**Forward PostgreSQL:**
+
+```toml
+[[host_configs]]
+host_name = "postgres-relay"
+upstream_address = "10.0.1.51:5432"
+mode = "tcp"
+tcp_forward_port = 15432
+```
+
+Connect with: `psql -h 127.0.0.1 -p 15432 -U myuser mydb`
+
+**Forward Redis:**
+
+```toml
+[[host_configs]]
+host_name = "redis-relay"
+upstream_address = "10.0.1.52:6379"
+mode = "tcp"
+tcp_forward_port = 16379
+```
+
+Connect with: `redis-cli -h 127.0.0.1 -p 16379`
+
+**HTTP proxy + TCP forwarding on the same host:**
+
+```toml
+[[host_configs]]
+host_name = "app.example.com"
+aliases = ["www.app.example.com"]
+upstream_address = "127.0.0.1:9000"
+mode = "both"
+tcp_forward_port = 19000
+```
+
+This loads a TLS certificate for `app.example.com` (HTTP/HTTPS proxy) and also listens on port `19000` for raw TCP forwarding.
 
 ## Certificate Management
 

@@ -41,9 +41,12 @@ impl CertStore {
   }
 
   pub fn load_certs_from_host_config_list(&self, host_config_list: &HostConfigList) {
-    host_config_list.host_configs.iter().for_each(|host_config| {
-      self.host_config_to_cert(host_config);
-    });
+    use mproxy_common::host_config::HostMode;
+    host_config_list.host_configs.iter()
+      .filter(|hc| hc.effective_mode() != HostMode::Tcp)
+      .for_each(|host_config| {
+        self.host_config_to_cert(host_config);
+      });
   }
 
   fn host_config_to_cert(&self, host_config: &HostConfig) {
@@ -113,6 +116,8 @@ mod tests {
             aliases: Some(vec![format!("www.{}", host_name)]),
             upstream_address: upstream.to_string(),
             blacklisted_ips: None,
+            tcp_forward_port: None,
+            mode: None,
         }
     }
 

@@ -6,6 +6,20 @@ use std::env;
 use std::sync::Mutex;
 use tracing::warn;
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum HostMode {
+    Http,
+    Tcp,
+    Both,
+}
+
+impl Default for HostMode {
+    fn default() -> Self {
+        HostMode::Http
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HostConfig {
     pub host_name: String,
@@ -13,6 +27,14 @@ pub struct HostConfig {
     pub upstream_address: String,
     #[serde(default, deserialize_with = "deserialize_optional_ip_blacklist")]
     pub blacklisted_ips: Option<IpBlacklist>,
+    pub tcp_forward_port: Option<u16>,
+    pub mode: Option<HostMode>,
+}
+
+impl HostConfig {
+    pub fn effective_mode(&self) -> HostMode {
+        self.mode.clone().unwrap_or_default()
+    }
 }
 
 fn deserialize_optional_ip_blacklist<'de, D>(deserializer: D) -> Result<Option<IpBlacklist>, D::Error>

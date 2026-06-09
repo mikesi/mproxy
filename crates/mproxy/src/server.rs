@@ -28,7 +28,7 @@ pub mod server {
     use std::sync::Arc;
     use std::time::Duration;
     use tracing::{error, info};
-
+    
     // TcpConnectionTracker logs TCP connection accepts, but note that Pingora doesn't
     // provide a connection-close callback, so this counter never decrements.
     static TCP_CONNECTION_COUNT: AtomicU64 = AtomicU64::new(0);

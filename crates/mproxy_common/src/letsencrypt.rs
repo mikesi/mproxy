@@ -9,7 +9,7 @@ use x509_parser::der_parser::oid;
 use x509_parser::extensions::{GeneralName, ParsedExtension};
 use x509_parser::parse_x509_certificate;
 use x509_parser::pem::parse_x509_pem;
-use crate::host_config::HostsConfigLoader;
+use crate::host_config::{HostMode, HostsConfigLoader};
 
 pub async fn import_from_letsencrypt_path(input_dir: &String) {
   let input_dir_path = PathBuf::from(input_dir);
@@ -296,7 +296,9 @@ pub fn renew_certs_in_store(staging: bool){
           let exp_10days = chrono::Utc::now().timestamp() + chrono::Duration::days(10).num_seconds();
           let exp_now = chrono::Utc::now().timestamp();
           if expire_date < exp_now {
-            host_list.host_configs.iter().for_each(|host_config| {
+            host_list.host_configs.iter()
+              .filter(|hc| hc.effective_mode() != HostMode::Tcp)
+              .for_each(|host_config| {
               if host_config.host_name.eq(&cert.get_host_name()) {
                 error!("Certificate is EXPIRED!");
                 error!("Domain: [{}]",&cert.get_host_name());
@@ -304,7 +306,9 @@ pub fn renew_certs_in_store(staging: bool){
               }
             });
           } else if expire_date < exp_10days {
-            host_list.host_configs.iter().for_each(|host_config| {
+            host_list.host_configs.iter()
+              .filter(|hc| hc.effective_mode() != HostMode::Tcp)
+              .for_each(|host_config| {
               if host_config.host_name.eq(&cert.get_host_name()) {
                 info!("Certificate is expiring soon, renewing...: {}",cert);
                 info!("Found in Host Config ... Try Renew");
