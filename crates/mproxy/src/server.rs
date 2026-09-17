@@ -502,10 +502,11 @@ pub mod server {
             let host = _ctx.server_name.as_deref().unwrap_or("unknown");
             METRICS.record_request(response_code, host, duration, _ctx.request_size, _ctx.response_size);
             let log_msg = format!(
-                "[{}] [{}] [{}] - [{}{}]",
+                "[{}] [{}] [{}] [{}] - [{}{}]",
                 _ctx.client_ip,
                 response_code,
                 session.req_header().method,
+                duration,
                 _ctx.server_name.as_deref().unwrap_or(""),
                 session.req_header().uri.path_and_query().unwrap()
             );

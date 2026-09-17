@@ -38,8 +38,8 @@ impl pingora::listeners::TlsAccept for CertHandler {
     match servername {
       Some(servername) => {
         if let Some(certificate) = self.find_cert(&servername) {
-          if let Some(cert_fullchain) = certificate.full_chain {
-            match X509::from_pem(cert_fullchain.as_bytes()) {
+          if let Some(cert_full_chain) = certificate.full_chain {
+            match X509::from_pem(cert_full_chain.as_bytes()) {
               Ok(cert) => {
                 _ssl.set_certificate(&cert).unwrap();
                 _ssl.add_chain_cert(cert).unwrap();
