@@ -7,11 +7,12 @@ pub mod server {
     use bytes::Bytes;
     use mproxy_common::acme_challenge_path;
     use mproxy_common::config::Config;
+    use mproxy_common::host_config::HostMode;
     use mproxy_common::ip_blacklist::IpBlacklist;
     use pingora::ErrorSource::Upstream;
     use pingora::http::{ResponseHeader, StatusCode};
     use pingora::listeners::tls::TlsSettings;
-    use pingora::listeners::{ALPN, TcpSocketOptions, ConnectionFilter};
+    use pingora::listeners::{ALPN, ConnectionFilter, TcpSocketOptions};
     use pingora::modules::http::HttpModules;
     use pingora::modules::http::compression::ResponseCompressionBuilder;
     use pingora::prelude::*;
@@ -22,13 +23,13 @@ pub mod server {
     use std::fmt::Debug;
     use std::fs;
     use std::net::IpAddr;
-    use std::path::PathBuf;
     use std::net::SocketAddr;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::path::PathBuf;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
     use tracing::{error, info};
-    
+
     // TcpConnectionTracker logs TCP connection accepts, but note that Pingora doesn't
     // provide a connection-close callback, so this counter never decrements.
     static TCP_CONNECTION_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -40,7 +41,10 @@ pub mod server {
     impl ConnectionFilter for TcpConnectionTracker {
         async fn should_accept(&self, _addr: Option<&SocketAddr>) -> bool {
             TCP_CONNECTION_COUNT.fetch_add(1, Ordering::Relaxed);
-            info!("TCP connection accepted, count: {}", TCP_CONNECTION_COUNT.load(Ordering::Relaxed));
+            info!(
+                "TCP connection accepted, count: {}",
+                TCP_CONNECTION_COUNT.load(Ordering::Relaxed)
+            );
             true
         }
     }
@@ -73,6 +77,25 @@ pub mod server {
         }
 
         None
+    }
+
+    async fn handle_host_redirect(
+        cert_store: &CertStore,
+        server_name: &str,
+        session: &mut Session,
+    ) -> Result<bool> {
+        if let Some(cert) = cert_store.get_cert(server_name)
+            && let Some(host_config) = cert.host_config
+            && host_config.effective_mode() == HostMode::Redirect
+        {
+            let redirect_url = host_config.redirect_url.as_deref().unwrap();
+            let mut resp = ResponseHeader::build(StatusCode::TEMPORARY_REDIRECT, None)?;
+            resp.insert_header("Location", redirect_url)?;
+            resp.insert_header("Content-Length", "0")?;
+            session.write_response_header(Box::new(resp), true).await?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     #[derive(Clone, Debug)]
@@ -210,6 +233,14 @@ pub mod server {
                 error!("No host specified!");
                 let _ = session.respond_error(502).await;
                 return Ok(true);
+            } else if handle_host_redirect(
+                &ctx.cert_store,
+                ctx.server_name.as_ref().unwrap(),
+                session,
+            )
+            .await?
+            {
+                return Ok(false);
             }
             Ok(false)
         }
@@ -225,10 +256,10 @@ pub mod server {
         {
             _upstream_request
                 .insert_header("X-Forwarded-Proto", "https")
-                .expect("TODO: panic message");
+                .expect("Cannot add X-Forwarded-Proto");
             _upstream_request
                 .insert_header("X-Forwarded-Scheme", "https")
-                .expect("TODO: panic message");
+                .expect("Cannot add X-Forwarded-Scheme");
             if let Some(ip_str) = _session
                 .client_addr()
                 .and_then(|addr| addr.as_inet().map(|addr| addr.ip().to_string()))
@@ -239,7 +270,10 @@ pub mod server {
                     .expect("Cannot add X-Real-IP");
             }
             if let Some(content_length) = _upstream_request.headers.get("content-length") {
-                if let Ok(size) = content_length.to_str().and_then(|s| Ok(s.parse::<u64>().unwrap_or(0))) {
+                if let Ok(size) = content_length
+                    .to_str()
+                    .and_then(|s| Ok(s.parse::<u64>().unwrap_or(0)))
+                {
                     _ctx.request_size = size;
                 }
             }
@@ -296,7 +330,13 @@ pub mod server {
                 .map_or(0, |resp| resp.status.as_u16());
             let duration = _ctx.request_start.elapsed().as_secs_f64();
             let host = _ctx.server_name.as_deref().unwrap_or("unknown");
-            METRICS.record_request(response_code, host, duration, _ctx.request_size, _ctx.response_size);
+            METRICS.record_request(
+                response_code,
+                host,
+                duration,
+                _ctx.request_size,
+                _ctx.response_size,
+            );
             let log_msg = format!(
                 "[{}] [{}] [{}] - [{}{}]",
                 _ctx.client_ip,
@@ -414,27 +454,36 @@ pub mod server {
                     Ok(true)
                 };
             }
-            if let Some(host_name) = SimpleHttpProxy::get_host(session) {
-                _ctx.server_name = Some(host_name.to_string().clone());
+            if let Some(host_name) = SimpleHttpProxy::get_host(session).map(|s| s.to_string()) {
+                _ctx.server_name = Some(host_name.clone());
 
                 if let Some(client_ip) = extract_client_ip(session) {
                     _ctx.client_ip = client_ip.to_string();
                     if let Some(blacklist_type) = blacklist_match(
                         &self.global_blacklist,
                         &_ctx.cert_store,
-                        host_name,
+                        &host_name,
                         client_ip,
                     ) {
-                        METRICS.record_blacklist_block(host_name, blacklist_type);
+                        METRICS.record_blacklist_block(&host_name, blacklist_type);
                         info!(
                             "Blocked HTTP request from {} for host {} by {} blacklist",
-                            client_ip,
-                            host_name,
-                            blacklist_type
+                            client_ip, host_name, blacklist_type
                         );
                         session.respond_error(403).await?;
                         return Ok(true);
                     }
+                }
+
+                // Check if the config is Redirect
+                if handle_host_redirect(
+                    &_ctx.cert_store,
+                    _ctx.server_name.as_ref().unwrap(),
+                    session,
+                )
+                .await?
+                {
+                    return Ok(true);
                 }
 
                 // Redirect to HTTPS all other requests
@@ -500,7 +549,13 @@ pub mod server {
                 .map_or(0, |resp| resp.status.as_u16());
             let duration = _ctx.request_start.elapsed().as_secs_f64();
             let host = _ctx.server_name.as_deref().unwrap_or("unknown");
-            METRICS.record_request(response_code, host, duration, _ctx.request_size, _ctx.response_size);
+            METRICS.record_request(
+                response_code,
+                host,
+                duration,
+                _ctx.request_size,
+                _ctx.response_size,
+            );
             let log_msg = format!(
                 "[{}] [{}] [{}] [{}] - [{}{}]",
                 _ctx.client_ip,

@@ -21,7 +21,6 @@ pub struct Certificate {
   pub host_config: Option<HostConfig>,
   #[serde(skip_serializing,skip_deserializing)]
   pub parsed_cert_der: RefCell<Option<Vec<u8>>>,
-  pub parsed_inter_cert: RefCell<Option<Vec<u8>>>,
 }
 
 impl Display for Certificate {
@@ -39,7 +38,6 @@ impl Certificate {
       certificate_pem: None,
       full_chain: None,
       parsed_cert_der: RefCell::new(None),
-      parsed_inter_cert: RefCell::new(None),
       host_config: None,
     }
   }
@@ -50,7 +48,6 @@ impl Certificate {
     new_cert.certificate_pem = cert.certificate_pem;
     new_cert.full_chain = cert.full_chain;
     new_cert.parsed_cert_der = RefCell::new(None);
-    new_cert.parse_inter_cert();
     new_cert.host_config = cert.host_config;
     new_cert
   }
@@ -59,18 +56,8 @@ impl Certificate {
     // info!("Load from path: [{}]",&path.to_str().unwrap());
     let mut cert: Certificate = serde_json::from_str(fs::read_to_string(path).unwrap().as_str()).unwrap();
     cert.parsed_cert_der = RefCell::new(None);
-    cert.parsed_inter_cert = RefCell::new(None);
-    cert.parse_inter_cert();
     cert.host_config = None;
     cert
-  }
-
-  pub fn parse_inter_cert(&mut self){
-    if self.full_chain.is_some() {
-      if let Some(inter_cert_str) = Certificate::extract_inter_cert_str(self.full_chain.as_ref().unwrap()) {
-        self.parsed_inter_cert = RefCell::new(Some(inter_cert_str.as_bytes().to_vec()));
-      }
-    }
   }
 
   pub fn get_host_name(&self) -> String {
@@ -134,27 +121,6 @@ impl Certificate {
       .map_err(|e| anyhow::anyhow!("Invalid X.509 certificate: {}", e))?;
 
     Ok(f(&cert))
-  }
-
-  pub fn extract_inter_cert_str(pem_chain: &str) -> Option<&str> {
-    let begin_marker = "-----BEGIN CERTIFICATE-----";
-    let end_marker = "-----END CERTIFICATE-----";
-    let mut last_pos = 0;
-
-    while let Some(begin) = pem_chain[last_pos..].find(begin_marker) {
-      let begin = last_pos + begin;
-      let end = pem_chain[begin..].find(end_marker)?;
-      last_pos = begin + end + end_marker.len();
-    }
-
-    // Get the last certificate block if it exists
-    if last_pos > 0 {
-      let begin = pem_chain[..last_pos].rfind(begin_marker)?;
-      let end = pem_chain[begin..].find(end_marker)? + end_marker.len() + begin;
-      return Some(&pem_chain[begin..end]);
-    }
-
-    None
   }
 
   pub fn get_valid_until_unix_timestamp(&self) -> Result<i64> {

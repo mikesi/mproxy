@@ -78,23 +78,6 @@ impl CertStore {
     }
   }
 
-  fn extract_last_cert(pem_chain: &str) -> Option<&str> {
-    let begin_marker = "-----BEGIN CERTIFICATE-----";
-    let end_marker = "-----END CERTIFICATE-----";
-    let mut last_pos = 0;
-    while let Some(begin) = pem_chain[last_pos..].find(begin_marker) {
-      let begin = last_pos + begin;
-      let end = pem_chain[begin..].find(end_marker)?;
-      last_pos = begin + end + end_marker.len();
-    }
-    // Get the last certificate block if it exists
-    if last_pos > 0 {
-      let begin = pem_chain[..last_pos].rfind(begin_marker)?;
-      let end = pem_chain[begin..].find(end_marker)? + end_marker.len() + begin;
-      return Some(&pem_chain[begin..end]);
-    }
-    None
-  }
 }
 
 #[cfg(test)]
@@ -102,6 +85,9 @@ mod tests {
     use super::*;
     use mproxy_common::certificates::Certificate;
     use mproxy_common::host_config::HostConfig;
+
+    // CertStore tests share the global CERT_MAP, so they must run serially
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn create_test_cert(host_name: &str) -> Certificate {
         let mut cert = Certificate::new(host_name.to_string());
@@ -118,11 +104,13 @@ mod tests {
             blacklisted_ips: None,
             tcp_forward_port: None,
             mode: None,
+            redirect_url: None,
         }
     }
 
     #[test]
     fn test_clear_certs() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let cert_store = CertStore::new();
         cert_store.clear_certs();
         
@@ -142,6 +130,7 @@ mod tests {
 
     #[test]
     fn test_cert_map_overwrites() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let cert_store = CertStore::new();
         cert_store.clear_certs();
         
@@ -161,6 +150,7 @@ mod tests {
 
     #[test]
     fn test_reload_removes_stale_entries() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let cert_store = CertStore::new();
         cert_store.clear_certs();
         

@@ -32,8 +32,8 @@ cd crates/cert_tool && cargo rpm build
 ## RPM Locations
 
 After building, find the RPMs at:
-- **mproxy**: `target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/mproxy-0.1.0-1.fc42.x86_64.rpm`
-- **cert-tool**: `target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/cert-tool-0.1.0-1.fc42.x86_64.rpm`
+- **mproxy**: `target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/mproxy-0.2.0-1.fc42.x86_64.rpm`
+- **cert-tool**: `target/x86_64-unknown-linux-gnu/release/rpmbuild/RPMS/x86_64/cert-tool-0.2.0-1.fc42.x86_64.rpm`
 
 ## Installation
 

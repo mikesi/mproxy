@@ -12,6 +12,7 @@ pub enum HostMode {
     Http,
     Tcp,
     Both,
+    Redirect
 }
 
 impl Default for HostMode {
@@ -28,6 +29,7 @@ pub struct HostConfig {
     #[serde(default, deserialize_with = "deserialize_optional_ip_blacklist")]
     pub blacklisted_ips: Option<IpBlacklist>,
     pub tcp_forward_port: Option<u16>,
+    pub redirect_url: Option<String>,
     pub mode: Option<HostMode>,
 }
 
