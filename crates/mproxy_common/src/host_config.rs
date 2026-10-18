@@ -31,6 +31,8 @@ pub struct HostConfig {
     pub tcp_forward_port: Option<u16>,
     pub redirect_url: Option<String>,
     pub mode: Option<HostMode>,
+    #[serde(default)]
+    pub no_refresh_cert: bool,
 }
 
 impl HostConfig {
@@ -61,6 +63,35 @@ where
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HostConfigList {
     pub host_configs: Vec<HostConfig>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_refresh_cert_defaults_to_false() {
+        let toml_str = r#"
+[[host_configs]]
+host_name = "example.com"
+upstream_address = "127.0.0.1:8080"
+"#;
+        let list: HostConfigList = toml::from_str(toml_str).unwrap();
+        assert_eq!(list.host_configs.len(), 1);
+        assert!(!list.host_configs[0].no_refresh_cert);
+    }
+
+    #[test]
+    fn no_refresh_cert_parses_true() {
+        let toml_str = r#"
+[[host_configs]]
+host_name = "example.com"
+upstream_address = "127.0.0.1:8080"
+no_refresh_cert = true
+"#;
+        let list: HostConfigList = toml::from_str(toml_str).unwrap();
+        assert!(list.host_configs[0].no_refresh_cert);
+    }
 }
 
 impl Clone for HostConfigList {

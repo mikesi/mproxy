@@ -105,6 +105,7 @@ mod tests {
             tcp_forward_port: None,
             mode: None,
             redirect_url: None,
+            no_refresh_cert: false,
         }
     }
 

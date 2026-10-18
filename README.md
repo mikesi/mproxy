@@ -103,6 +103,15 @@ Each host entry supports an optional `mode` field:
 | `"tcp"` | Raw TCP forwarding only. No certificate is loaded. |
 | `"both"` | HTTP reverse proxy **and** TCP forwarding. Certificate is loaded. |
 
+Each host entry also supports an optional `no_refresh_cert` field (boolean, default `false`). When set to `true`, automatic certificate renewal (`cert_tool cert-auto-renew`) skips that host's certificate:
+
+```toml
+[[host_configs]]
+host_name = "static.example.com"
+upstream_address = "127.0.0.1:8080"
+no_refresh_cert = true
+```
+
 You also need to set the following environment variables:
 
 - `MPROXY_HTTP_PORT`: The port to listen on for HTTP traffic (e.g., 80).
@@ -205,6 +214,8 @@ To import certificates from a Let's Encrypt directory, use the `import` command:
 ```
 
 This will scan the `/etc/letsencrypt/live` directory, parse the certificates, and save them in a format that `mproxy` can use in the directory specified by the `MPROXY_CERT_PATH` environment variable.
+
+Hosts with `no_refresh_cert = true` in `hosts.toml` are skipped by automatic renewal.
 
 ### Requesting New Certificates from Let's Encrypt
 

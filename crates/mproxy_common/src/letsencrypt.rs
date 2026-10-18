@@ -297,7 +297,7 @@ pub fn renew_certs_in_store(staging: bool){
           let exp_now = chrono::Utc::now().timestamp();
           if expire_date < exp_now {
             host_list.host_configs.iter()
-              .filter(|hc| hc.effective_mode() != HostMode::Tcp)
+              .filter(|hc| hc.effective_mode() != HostMode::Tcp && !hc.no_refresh_cert)
               .for_each(|host_config| {
               if host_config.host_name.eq(&cert.get_host_name()) {
                 error!("Certificate is EXPIRED!");
@@ -307,7 +307,7 @@ pub fn renew_certs_in_store(staging: bool){
             });
           } else if expire_date < exp_10days {
             host_list.host_configs.iter()
-              .filter(|hc| hc.effective_mode() != HostMode::Tcp)
+              .filter(|hc| hc.effective_mode() != HostMode::Tcp && !hc.no_refresh_cert)
               .for_each(|host_config| {
               if host_config.host_name.eq(&cert.get_host_name()) {
                 info!("Certificate is expiring soon, renewing...: {}",cert);
